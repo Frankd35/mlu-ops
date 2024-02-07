@@ -73,6 +73,14 @@ static mluOpStatus_t RotatedFeatureAlignForwardPreCheck(
   PARAM_CHECK("[mluOpRotatedFeatureAlignForward]",
               output_desc->layout == MLUOP_LAYOUT_NHWC);
 
+  // check stride
+  STRIDE_TENSOR_CHECK("[mluOpRotatedFeatureAlignForward]:", input_desc,
+                      "input_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRotatedFeatureAlignForward]:", bboxes_desc,
+                      "bboxes_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRotatedFeatureAlignForward]:", output_desc,
+                      "output_desc must be contiguous");
+
   for (int i = 0; i < input_desc->dim; i++) {
     if (input_desc->dims[i] != output_desc->dims[i]) {
       LOG(ERROR)
@@ -140,6 +148,14 @@ static mluOpStatus_t RotatedFeatureAlignBackwardPreCheck(
   PARAM_CHECK("[mluOpRotatedFeatureAlignBackward]",
               bottom_input_desc->layout == MLUOP_LAYOUT_NHWC);
 
+  // check stride
+  STRIDE_TENSOR_CHECK("[mluOpRotatedFeatureAlignBackward]:", top_output_desc,
+                      "top_output_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRotatedFeatureAlignBackward]:", bboxes_desc,
+                      "bboxes_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRotatedFeatureAlignBackward]:", bottom_input_desc,
+                      "bottom_input_desc must be contiguous");
+
   for (int i = 0; i < top_output_desc->dim; i++) {
     if (top_output_desc->dims[i] != bottom_input_desc->dims[i]) {
       LOG(ERROR) << "[mluOpRotatedFeatureAlignBackward] Check failed: "
@@ -206,7 +222,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpRotatedFeatureAlignForward(
 
   // generate mluOpRotatedFeatureAlignForward prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("rotated_feature_align_forward");
+    GEN_CASE_START("rotated_feature_align_forward",
+                   "ROTATED_FEATURE_ALIGN_FORWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "input", input, input_desc, -10, 10);
     GEN_CASE_DATA_REAL(true, "rois", bboxes, bboxes_desc);
@@ -261,7 +278,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpRotatedFeatureAlignBackward(
 
   // generate mluOpRotatedFeatureAlignBackward prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("rotated_feature_align_backward");
+    GEN_CASE_START("rotated_feature_align_backward",
+                   "ROTATED_FEATURE_ALIGN_BACKWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "input", top_output, top_output_desc, -100, 100);
     GEN_CASE_DATA_REAL(true, "rois", bboxes, bboxes_desc);

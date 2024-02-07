@@ -111,6 +111,17 @@ mluOpStatus_t MLUOP_WIN_API mluOpMoeDispatchBackwardData(
   PARAM_CHECK(API, hidden >= 0);
   PARAM_CHECK(API, num_experts >= 0);
 
+  // check stride
+  STRIDE_TENSOR_CHECK(API + ":", gates_desc, "gates_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(API + ":", indices_desc,
+                      "indices_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(API + ":", locations_desc,
+                      "locations_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(API + ":", dispatch_desc,
+                      "dispatch_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(API + ":", grad_input_desc,
+                      "grad_input_desc must be contiguous");
+
   const uint64_t gates_element_num = mluOpGetTensorElementNum(gates_desc);
   const uint64_t indices_element_num = mluOpGetTensorElementNum(indices_desc);
   const uint64_t locations_element_num =
@@ -166,11 +177,13 @@ mluOpStatus_t MLUOP_WIN_API mluOpMoeDispatchBackwardData(
 
   // generate prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("moe_dispatch_backward_data");
+    GEN_CASE_START("moe_dispatch_backward_data", "MOE_DISPATCH_BACKWARD_DATA");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "gates", gates, gates_desc, 100, -100);
-    GEN_CASE_DATA_REAL(true, "indices", indices, indices_desc);
-    GEN_CASE_DATA_REAL(true, "locations", locations, locations_desc);
+    GEN_CASE_DATA_REAL_V2(true, "indices", indices, indices_desc, num_experts,
+                          0);
+    GEN_CASE_DATA_REAL_V2(true, "locations", locations, locations_desc,
+                          capacity, 0);
     GEN_CASE_DATA(true, "dispatch", dispatch, dispatch_desc, 100, -100);
     GEN_CASE_DATA(false, "grad_input", grad_input, grad_input_desc, 0, 0);
     GEN_CASE_OP_PARAM_SINGLE(0, "moe_dispatch_backward_data", "samples",

@@ -62,6 +62,15 @@ static mluOpStatus_t DeformRoiPoolForwardPreCheck(
   PARAM_CHECK("[mluOpDeformRoiPoolForward]",
               output_desc->layout == MLUOP_LAYOUT_NHWC);
 
+  STRIDE_TENSOR_CHECK("[mluOpDeformRoiPoolForward]:", input_desc,
+                      "input_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpDeformRoiPoolForward]:", rois_desc,
+                      "rois_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpDeformRoiPoolForward]:", offset_desc,
+                      "offset_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpDeformRoiPoolForward]:", output_desc,
+                      "output_desc must be contiguous");
+
   PARAM_CHECK("[mluOpDeformRoiPoolForward]",
               input_desc->dtype == MLUOP_DTYPE_FLOAT ||
                   input_desc->dtype == MLUOP_DTYPE_HALF);
@@ -135,6 +144,19 @@ static mluOpStatus_t DeformRoiPoolBackwardPreCheck(
               input_desc->layout == MLUOP_LAYOUT_NHWC);
   PARAM_CHECK("[mluOpDeformRoiPoolBackward]",
               grad_input_desc->layout == MLUOP_LAYOUT_NHWC);
+
+  STRIDE_TENSOR_CHECK("[mluOpDeformRoiPoolBackward]:", input_desc,
+                      "input_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpDeformRoiPoolBackward]:", grad_output_desc,
+                      "grad_output_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpDeformRoiPoolBackward]:", rois_desc,
+                      "rois_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpDeformRoiPoolBackward]:", offset_desc,
+                      "offset_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpDeformRoiPoolBackward]:", grad_input_desc,
+                      "grad_input_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpDeformRoiPoolBackward]:", grad_offset_desc,
+                      "grad_offset_desc must be contiguous");
 
   PARAM_CHECK("[mluOpDeformRoiPoolBackward]",
               input_desc->dtype == MLUOP_DTYPE_FLOAT ||
@@ -315,7 +337,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpDeformRoiPoolForward(
 
   // generate mluOpDeformRoiPoolForward prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("deform_roi_pool_forward");
+    GEN_CASE_START("deform_roi_pool_forward", "DEFORM_ROI_POOL_FORWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "input", input, input_desc, -10, 10);
     GEN_CASE_DATA_REAL(true, "rois", rois, rois_desc);
@@ -401,7 +423,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpDeformRoiPoolBackward(
 
   // generate mluOpDeformRoiPoolBackward prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("deform_roi_pool_backward");
+    GEN_CASE_START("deform_roi_pool_backward", "DEFORM_ROI_POOL_BACKWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "grad_output", grad_output, grad_output_desc, -10, 10);
     GEN_CASE_DATA(true, "input", input, input_desc, -10, 10);

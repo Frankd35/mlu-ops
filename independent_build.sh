@@ -16,9 +16,12 @@ PROG_NAME=$(basename $0)  # current script filename, DO NOT EDIT
 export MLUOP_MLU_ARCH_LIST="${MLUOP_MLU_ARCH_LIST}"
 export BUILD_MODE=${BUILD_MODE:-release} # release/debug
 export MLUOP_BUILD_COVERAGE_TEST=${MLUOP_BUILD_COVERAGE_TEST:-OFF} # ON/OFF coverage mode
+export MLUOP_BUILD_PERF=${MLUOP_BUILD_PERF:-OFF} #ON/OFF perf mode
 export MLUOP_BUILD_ASAN_CHECK=${MLUOP_BUILD_ASAN_CHECK:-OFF} # ON/OFF Address Sanitizer (ASan)
 export MLUOP_BUILD_BANG_MEMCHECK=${MLUOP_BUILD_BANG_MEMCHECK:-OFF} # ON/OFF bang memcheck
 export MLUOP_BUILD_PREPARE=${MLUOP_BUILD_PREPARE:-ON}
+export MLUOP_BUILD_GTEST=${MLUOP_BUILD_GTEST:-ON}
+export MLUOP_BUILD_STATIC=${MLUOP_BUILD_STATIC:-OFF}
 export BUILD_JOBS="${BUILD_JOBS:-16}" # concurrent build jobs
 
 # import common method like `download_pkg`, `get_json_val`, `common_extract`, etc
@@ -33,8 +36,9 @@ short_args=(
   c   # coverage
   h   # help
   d   # debug
-  t:   # release
+  t:  # release
   j:  # jobs
+  p   # perf
 )
 # setup long options, follow alphabetical order
 long_args=(
@@ -48,7 +52,10 @@ long_args=(
   mlu370 # mlu arch
   mlu590
   no_prepare
+  perf
   prepare
+  disable-gtest
+  enable-static
 )
 
 add_mlu_arch_support () {
@@ -103,7 +110,9 @@ usage () {
     echo "    -c, --coverage              Build mlu-ops with coverage test."
     echo "    --asan                      Build with asan check enabled"
     echo "    -d, --debug                 Build mlu-ops with debug mode"
+    echo "    --disable-gtest             Build mlu-ops without gtest"
     echo "    --enable-bang-memcheck      Build with cncc '-mllvm -enable-mlisa-sanitizer -Xbang-cnas -O0 -g' arg to enable memcheck"
+    echo "    --enable-static             Build mlu-ops static library"
     echo "    --mlu370                    Build for target product MLU370: __BANG_ARCH__ = 372"
     echo "                                                                 __MLU_NRAM_SIZE__ = 768KB"
     echo "                                                                 __MLU_WRAM_SIZE__ = 1024KB"
@@ -117,6 +126,7 @@ usage () {
     echo "    --filter=*                  Build specified OP only (string with ';' separated)"
     echo "    -j N, --jobs=N              Build for N parallel jobs."
     echo "    --no_prepare                Skip dependency download."
+    echo "    -p, --perf                  Build mlu kernel with readperf"
     echo "    --prepare                   Dependency download only."
     echo "    -t                          Build to release."
     echo
@@ -225,6 +235,32 @@ prepare_cntoolkit () {
               done
               popd > /dev/null
           done
+      elif [ ${ID} == "anolis" ]; then
+          for (( i =0; i < ${n}; i++))
+          do
+              PACKAGE_DIST="Anolis"
+              PACKAGE_DIST_VER=${VERSION_ID}
+              PACKAGE_PATH=${PACKAGE_SERVER}"/"${arr_branch[$i]}"/"${arr_modules[$i]}"/"${PACKAGE_OS}"/"${PACKAGE_ARCH}"/"${PACKAGE_DIST}"/"${PACKAGE_DIST_VER}"/"${arr_vers[$i]}"/"
+              REAL_PATH=`echo ${PACKAGE_PATH} | awk -F '//' '{print $2}'`
+              prog_log_info "${arr_modules[$i]} url: ${REAL_PATH}"
+              wget -A rpm -m -p -E -k -K -np -q --reject-regex 'static' ${PACKAGE_PATH}
+
+              pushd ${PACKAGE_EXTRACT_DIR} > /dev/null
+              for filename in ../${REAL_PATH}*.rpm; do
+                prog_log_info "extract ${filename}"
+                rpm2cpio $filename | cpio -u -di
+                if [ ${arr_modules[$i]} == "cntoolkit" ]; then
+                  pure_ver=`echo ${arr_vers[$i]} | cut -d '-' -f 1`
+                  for pkg in ${sub_pkg_to_extract[@]}
+                  do
+                    local fname=$(ls -1 ./var/cntoolkit-${pure_ver}/${pkg}* | grep -E "${pkg}[^[:alnum:]][0-9].*")
+                    prog_log_info "extract ${fname}"
+                    rpm2cpio ${fname} | cpio -u -di
+                  done
+                fi
+              done
+              popd > /dev/null
+          done
       elif [ ${ID} == "kylin" ]; then
           for (( i =0; i < ${n}; i++))
           do
@@ -291,6 +327,10 @@ if [ $# != 0 ]; then
           shift
           export MLUOP_BUILD_BANG_MEMCHECK="ON"
           ;;
+      --enable-static)
+          shift
+          export MLUOP_BUILD_STATIC="ON"
+          ;;
       --filter)
         shift
         export MLUOP_BUILD_SPECIFIC_OP=$1
@@ -314,10 +354,19 @@ if [ $# != 0 ]; then
         export MLUOP_BUILD_PREPARE="OFF"
         prog_log_note "Skip dependency download."
         ;;
+      -p | --perf)
+        shift
+        export MLUOP_BUILD_PERF="ON"
+        ;;
       --prepare)
         shift
         export MLUOP_BUILD_PREPARE_ONLY="ON"
         prog_log_note "Prepare dependency only."
+        ;;
+      --disable-gtest)
+        shift
+        export MLUOP_BUILD_GTEST="OFF"
+        prog_log_note "Disable gtest."
         ;;
       --)
         shift
@@ -380,7 +429,7 @@ fi
 if [ "${MLUOP_BUILD_PREPARE_ONLY}" = "ON" ]; then
   prog_log_info "You have called prepare cntoolkit explicitly."
   prepare_cntoolkit
-  exit -1
+  exit 0
 elif [ "${MLUOP_BUILD_PREPARE}" = "ON" ]; then
   prepare_cntoolkit
   build_requires_version_check
@@ -416,6 +465,7 @@ pushd ${BUILD_PATH} > /dev/null
   ${CMAKE}  ../ -DCMAKE_BUILD_TYPE="${BUILD_MODE}" \
                 -DNEUWARE_HOME="${NEUWARE_HOME}" \
                 -DMLUOP_BUILD_COVERAGE_TEST="${MLUOP_BUILD_COVERAGE_TEST}" \
+                -DMLUOP_BUILD_PERF="${MLUOP_BUILD_PERF}" \
                 -DBUILD_VERSION="${BUILD_VERSION}" \
                 -DMAJOR_VERSION="${MAJOR_VERSION}" \
                 -DMLUOP_BUILD_ASAN_CHECK="${MLUOP_BUILD_ASAN_CHECK}" \
@@ -424,7 +474,9 @@ pushd ${BUILD_PATH} > /dev/null
                 -DMLUOP_TARGET_CPU_ARCH="${MLUOP_TARGET_CPU_ARCH}" \
                 -DMLUOP_BUILD_SPECIFIC_OP="${MLUOP_BUILD_SPECIFIC_OP}" \
                 -DMLUOP_SYMBOL_VIS_FILE="${MLUOP_SYMBOL_VIS_FILE}" \
-                -DMLUOP_PACKAGE_INFO_SET="${MLUOP_PACKAGE_INFO_SET}"
+                -DMLUOP_PACKAGE_INFO_SET="${MLUOP_PACKAGE_INFO_SET}" \
+                -DMLUOP_BUILD_GTEST="${MLUOP_BUILD_GTEST}" \
+                -DMLUOP_BUILD_STATIC="${MLUOP_BUILD_STATIC}"
 
 popd > /dev/null
 ${CMAKE} --build ${BUILD_PATH} --  -j${BUILD_JOBS}
@@ -435,8 +487,10 @@ if [ "${MLUOP_PACKAGE_INFO_SET}" = "ON" ]; then
   mkdir -p ${PACKAGE_DIR}
   mkdir -p ${PACKAGE_DIR}/include
   mkdir -p ${PACKAGE_DIR}/lib64
+  mkdir -p ${PACKAGE_DIR}/samples
 
   cp -rf ${BUILD_DIR}/lib/libmluops.so* ${PACKAGE_DIR}/lib64
+  cp -r samples/* ${PACKAGE_DIR}/samples
   cp mlu_op.h ${PACKAGE_DIR}/include
 
   TEST_DIR="test_workspace/mluops"

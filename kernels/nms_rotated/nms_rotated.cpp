@@ -87,6 +87,14 @@ mluOpNmsRotated(mluOpHandle_t handle, const float iou_threshold,
   PARAM_CHECK_EQ("[mluOpNmsRotated]", scores_desc->dim, 1);
   PARAM_CHECK_EQ("[mluOpNmsRotated]", output_desc->dim, 1);
 
+  // stride check
+  STRIDE_TENSOR_CHECK("[mluOpNmsRotated]:", boxes_desc,
+                      "boxes_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpNmsRotated]:", scores_desc,
+                      "scores_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpNmsRotated]:", output_desc,
+                      "output_desc must be contiguous");
+
   PARAM_CHECK("[mluOpNmsRotated]", boxes_desc->dims[0] == scores_desc->dims[0]);
   PARAM_CHECK("[mluOpNmsRotated]", boxes_desc->dims[0] == output_desc->dims[0]);
   if (boxes_desc->dims[1] != SINGLE_BOX_DIM &&
@@ -116,7 +124,7 @@ mluOpNmsRotated(mluOpHandle_t handle, const float iou_threshold,
 
   // generate prototxt
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("nms_rotated");
+    GEN_CASE_START("nms_rotated", "NMS_ROTATED");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA_REAL(true, "input1", boxes, boxes_desc);
     GEN_CASE_DATA_REAL(true, "input2", scores, scores_desc);

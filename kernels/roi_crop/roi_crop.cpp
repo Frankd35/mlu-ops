@@ -68,6 +68,13 @@ mluOpStatus_t RoiCropForwardParamCheck(
   // check shape and layout
   PARAM_CHECK(op_name, input_desc->layout == MLUOP_LAYOUT_NHWC);
   PARAM_CHECK(op_name, output_desc->layout == MLUOP_LAYOUT_NHWC);
+  // check stride
+  STRIDE_TENSOR_CHECK("[mluOpRoiCropForward]:", input_desc,
+                      "input_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRoiCropForward]:", grid_desc,
+                      "grid_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRoiCropForward]:", output_desc,
+                      "output_desc must be contiguous");
 
   for (int i = 0; i < output_desc->dim - 1; ++i) {
     if (output_desc->dims[i] != grid_desc->dims[i]) {
@@ -128,6 +135,14 @@ mluOpStatus_t RoiCropBackwardParamCheck(
   // check shape and layout
   PARAM_CHECK(op_name, grad_output_desc->layout == MLUOP_LAYOUT_NHWC);
   PARAM_CHECK(op_name, grad_input_desc->layout == MLUOP_LAYOUT_NHWC);
+  // check stride
+  STRIDE_TENSOR_CHECK("[mluOpRoiCropBackward]:", grad_output_desc,
+                      "grad_output_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRoiCropBackward]:", grid_desc,
+                      "grid_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRoiCropBackward]:", grad_input_desc,
+                      "grad_input_desc must be contiguous");
+
   for (int i = 0; i < grad_output_desc->dim - 1; ++i) {
     if (grad_output_desc->dims[i] != grid_desc->dims[i]) {
       LOG(ERROR) << op_name << " Check failed: grad_output_desc->dims[" << i
@@ -189,7 +204,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiCropForward(
   uint32_t bin_num = grid_n * output_h * output_w;
 
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("roi_crop_forward");
+    GEN_CASE_START("roi_crop_forward", "ROI_CROP_FORWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "input", input, input_desc, -10, 10);
     GEN_CASE_DATA(true, "grid", grid, grid_desc, -1, 1);
@@ -236,7 +251,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiCropBackward(
   uint32_t bin_num = grid_n * output_h * output_w;
 
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("roi_crop_backward");
+    GEN_CASE_START("roi_crop_backward", "ROI_CROP_BACKWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "grad_output", grad_output, grad_output_desc, -10, 10);
     GEN_CASE_DATA(true, "grid", grid, grid_desc, -1, 1);

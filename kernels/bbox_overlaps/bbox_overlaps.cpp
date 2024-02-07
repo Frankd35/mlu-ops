@@ -70,6 +70,11 @@ mluOpStatus_t MLUOP_WIN_API mluOpBboxOverlaps(
   PARAM_CHECK(API, bbox1_desc->dim == 2);
   PARAM_CHECK(API, bbox2_desc->dim == 2);
 
+  // stride check
+  STRIDE_TENSOR_CHECK(API + ":", bbox1_desc, "bbox1_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(API + ":", bbox2_desc, "bbox2_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(API + ":", ious_desc, "ious_desc must be contiguous");
+
   // param check
   if (mode != 1 && mode != 0) {
     LOG(ERROR) << "[mluOpBboxOverlaps] Check failed: The mode must be 0 or 1, "
@@ -189,7 +194,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpBboxOverlaps(
 
   // generate mluOpBboxOverlaps prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("bbox_overlaps");
+    GEN_CASE_START("bbox_overlaps", "BBOX_OVERLAPS");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA_REAL(true, "input", bbox1, bbox1_desc);
     GEN_CASE_DATA_REAL(true, "input", bbox2, bbox2_desc);

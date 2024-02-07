@@ -53,12 +53,12 @@ __mlu_func__ bool __mluop_is_half<half>() {
 }
 
 template <typename T>
-__mlu_func__ inline T __mluop_min(T a, T b) {
+__mlu_func__ T __mluop_min(T a, T b) {
   return a < b ? a : b;
 }
 
 template <typename T>
-__mlu_func__ inline T __mluop_max(T a, T b) {
+__mlu_func__ T __mluop_max(T a, T b) {
   return a > b ? a : b;
 }
 
@@ -70,8 +70,7 @@ __mlu_func__ inline T __mluop_max(T a, T b) {
  * Note:
  *      The rounding mode on MLU200 is rd, on MLU300 is rn.
  ******************************************************************************/
-__mlu_func__ inline void __mluop_float2half(half *dst, float *src,
-                                            int src_count) {
+__mlu_func__ void __mluop_float2half(half *dst, float *src, int src_count) {
 #if __BANG_ARCH__ >= 300
   __bang_float2half_rn(dst, src, src_count);
 #else
@@ -79,7 +78,7 @@ __mlu_func__ inline void __mluop_float2half(half *dst, float *src,
 #endif
 }
 
-__mlu_func__ inline half __mluop_float2half(float a) {
+__mlu_func__ half __mluop_float2half(float a) {
 #if __BANG_ARCH__ >= 300
   return __float2half_rn(a);
 #else
@@ -699,8 +698,8 @@ __mlu_func__ void __mluop_get_stage_indices_tfuse(int *dst_nram, int length) {
  * *************************************************************************/
 __mlu_vector__ void __mluop_get_indices(float *dst, float start_index,
                                         uint32_t len) {
-  vv_int16 r_out, r_dim;
-  unsigned BlockDim = __vv_get_length() / sizeof(int16_t);
+  vv_float r_out, r_dim;
+  unsigned BlockDim = __vv_get_length() / sizeof(float);
   __asm__ volatile("index.vvr.f32 %[dst], %[base], 1;\n\t"
                    : [ dst ] "+r"(r_out)
                    : [ base ] "r"(start_index));

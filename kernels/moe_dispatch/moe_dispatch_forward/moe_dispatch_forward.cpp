@@ -104,6 +104,18 @@ static mluOpStatus_t MoeDispatchForwardParamCheck(
   PARAM_CHECK(op_name, (hidden == input_desc->dims[1]));
   PARAM_CHECK(op_name, (hidden == dispatch_desc->dims[1]));
 
+  // check stride
+  STRIDE_TENSOR_CHECK(op_name + ":", gates_desc,
+                      "gates_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(op_name + ":", indices_desc,
+                      "indices_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(op_name + ":", locations_desc,
+                      "locations_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(op_name + ":", input_desc,
+                      "input_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(op_name + ":", dispatch_desc,
+                      "dispatch_desc must be contiguous");
+
   // check correlation of parameters
   PARAM_CHECK_V2(op_name, samples <= (num_experts * capacity),
                  "The samples must be less than or equal to the "
@@ -165,13 +177,16 @@ mluOpStatus_t MLUOP_WIN_API mluOpMoeDispatchForward(
   }
 
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("moe_dispatch_forward");
+    GEN_CASE_START("moe_dispatch_forward", "MOE_DISPATCH_FORWARD");
     GEN_CASE_HANDLE(handle);
-    GEN_CASE_DATA(true, "gates", gates, gates_desc, 0, 1);
-    GEN_CASE_DATA_REAL(true, "indices", indices, indices_desc);
-    GEN_CASE_DATA_REAL(true, "locations", locations, locations_desc);
-    GEN_CASE_DATA(true, "input", input, input_desc, -100, 100);
-    GEN_CASE_DATA(true, "dispatch", dispatch, dispatch_desc, -100, 100);
+    GEN_CASE_DATA(true, "gates", gates, gates_desc, 1, 0);
+    GEN_CASE_DATA_REAL_V2(true, "indices", indices, indices_desc,
+                          num_experts - 1, 0);
+    GEN_CASE_DATA_REAL_V2(true, "locations", locations, locations_desc,
+                          capacity - 1, 0);
+    GEN_CASE_DATA(true, "input", input, input_desc, 100, -100);
+    GEN_CASE_DATA(true, "dispatch", dispatch, dispatch_desc, 100, -100);
+    GEN_CASE_DATA(false, "dispatch", dispatch, dispatch_desc, 0, 0);
     GEN_CASE_OP_PARAM_SINGLE(0, "moe_dispatch_forward", "samples", samples);
     GEN_CASE_OP_PARAM_SINGLE(1, "moe_dispatch_forward", "capacity", capacity);
     GEN_CASE_OP_PARAM_SINGLE(2, "moe_dispatch_forward", "hidden", hidden);

@@ -32,6 +32,7 @@
 #include "kernels/kernel.h"
 #include "kernels/utils/cnnl_helper.h"
 #include "mlu_op.h"
+#include "kernels/sparse_conv/get_indice_pairs/get_indice_pairs_structs.h"
 
 static mluOpStatus_t foolProof(
     const std::string api_name, mluOpHandle_t handle,
@@ -91,6 +92,12 @@ static mluOpStatus_t foolProof(
   PARAM_CHECK(api_name, features_desc->dim == 2);
   PARAM_CHECK(api_name, indice_pairs_desc->dim == 3);
   PARAM_CHECK(api_name, features_out_desc->dim == 2);
+  if (indice_pairs_desc->dims[2] > INDICE_IN_LARGE_TENSOR_NUM) {
+    LOG(ERROR) << api_name << " Check failed: "
+               << "indice_pairs_desc->dims[2] cannot be greater than "
+               << INDICE_IN_LARGE_TENSOR_NUM << ".";
+    return MLUOP_STATUS_NOT_SUPPORTED;
+  }
   if (filters_desc->dim != 5) {
     LOG(ERROR) << api_name
                << "The filters dimension number only support 5 currently,"
@@ -98,6 +105,16 @@ static mluOpStatus_t foolProof(
                << ".";
     return MLUOP_STATUS_NOT_SUPPORTED;
   }
+
+  // check stride
+  STRIDE_TENSOR_CHECK(api_name + ":", features_desc,
+                      "features_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api_name + ":", filters_desc,
+                      "filters_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api_name + ":", indice_pairs_desc,
+                      "indice_pairs_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api_name + ":", features_out_desc,
+                      "features_out_desc must be contiguous");
 
   // large tensor
   if (mluOpGetTensorElementNum(features_desc) >= LARGE_TENSOR_NUM ||
@@ -139,8 +156,10 @@ static mluOpStatus_t foolProof(
 
   // indice_num[] check
   for (int i = 0; i < num_filter; ++i) {
-    PARAM_CHECK(api_name,
-                indice_num[i] >= 0 && indice_num[i] <= features_desc->dims[0]);
+    std::string i_str = "i: " + std::to_string(i) + ".";
+    PARAM_CHECK_V2(
+        api_name, indice_num[i] >= 0 && indice_num[i] <= features_desc->dims[0],
+        << i_str);
   }
 
   return MLUOP_STATUS_SUCCESS;
@@ -368,12 +387,9 @@ static mluOpStatus_t mainIndiceConvolutionForward(
       }
       DEFINE_CREATE_AND_SET_CNNL_TENSOR_DESCRIPTOR(features_out_desc,
                                                    cnnl_output_desc);
-      CHECK_FUNC_RETURN(
-          cnnlGetAddNWorkspaceSize(cnnl_handle, cnnl_input_descs, addn_num,
-                                   cnnl_output_desc, &tempSize_addNExtra),
-          CNNL_STATUS_SUCCESS,
-          "[cnnlAddN_v2] Internal error accured in cnnlGetAddNWorkspaceSize.",
-          MLUOP_STATUS_INTERNAL_ERROR);
+      CALL_CNNL(cnnlGetAddNWorkspaceSize(cnnl_handle, cnnl_input_descs,
+                                         addn_num, cnnl_output_desc,
+                                         &tempSize_addNExtra));
       for (int i = 0; i < addn_num; i++) {
         DESTROY_CNNL_TENSOR_DESCRIPTOR(cnnl_input_descs[i]);
       }
@@ -604,7 +620,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpIndiceConvolutionForward(
 
   // gen_case
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("indice_convolution_forward");
+    GEN_CASE_START("indice_convolution_forward", "INDICE_CONVOLUTION_FORWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA_REAL(true, "features", features, features_desc);
     GEN_CASE_DATA_REAL(true, "filters", filters, filters_desc);
@@ -629,8 +645,6 @@ mluOpStatus_t MLUOP_WIN_API mluOpIndiceConvolutionForward(
                              indice_pairs, indice_num, num_act_out, workspace,
                              nullptr, features_out_desc, features_out));
 
-  if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_END();
-  }
+  GEN_CASE_END();
   return MLUOP_STATUS_SUCCESS;
 }

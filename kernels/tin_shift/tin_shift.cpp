@@ -134,6 +134,10 @@ static mluOpStatus_t TinShiftPreCheck(
                << " and shifts batch size is " << shifts_desc->dims[0] << ".";
     return MLUOP_STATUS_BAD_PARAM;
   }
+  const std::string api_ = "[mluOpTinShift " + direction + "]:";
+  STRIDE_TENSOR_CHECK(api_, input_desc, "input_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api_, shifts_desc, "shifts_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api_, output_desc, "output_desc must be contiguous");
   if (shifts_desc->dtype != MLUOP_DTYPE_INT32) {
     LOG(ERROR)
         << "[mluOpTinShift " + direction + "] "
@@ -201,7 +205,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpTinShiftForward(
 
   // generate mluOpTinShiftForward prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("tin_shift_forward");
+    GEN_CASE_START("tin_shift_forward", "TIN_SHIFT_FORWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "input", input, input_desc, -10, 10);
     GEN_CASE_DATA_REAL(true, "shifts", shifts, shifts_desc);
@@ -265,7 +269,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpTinShiftBackward(
 
   // generate mluOpTinShiftBackward prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("tin_shift_backward");
+    GEN_CASE_START("tin_shift_backward", "TIN_SHIFT_BACKWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "grad_output", grad_output, grad_output_desc, -10, 10);
     GEN_CASE_DATA_REAL(true, "shifts", shifts, shifts_desc);

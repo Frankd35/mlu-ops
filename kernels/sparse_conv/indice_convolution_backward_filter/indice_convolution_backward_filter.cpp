@@ -79,7 +79,8 @@ static void indiceConvFilterGencase(
     const void *indice_pairs, const int64_t indice_num[], const int64_t inverse,
     const int64_t subm, void *workspace, size_t workspace_size,
     const mluOpTensorDescriptor_t filters_grad_desc, void *filters_grad) {
-  GEN_CASE_START("indice_convolution_backward_filter");
+  GEN_CASE_START("indice_convolution_backward_filter",
+                 "INDICE_CONVOLUTION_BACKWARD_FILTER");
   GEN_CASE_HANDLE(handle);
   GEN_CASE_DATA_REAL(true, "features", features, features_desc);
   GEN_CASE_DATA_REAL(true, "output_grad", output_grad, output_grad_desc);
@@ -182,6 +183,16 @@ static mluOpStatus_t baseParamCheck(
   PARAM_CHECK(api_name, filters_grad_desc != nullptr);
   PARAM_CHECK(api_name, indice_num != nullptr);
   PARAM_CHECK(api_name, inverse == 0);
+
+  // check stride
+  STRIDE_TENSOR_CHECK(api_name + ":", features_desc,
+                      "features_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api_name + ":", output_grad_desc,
+                      "output_grad_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api_name + ":", indice_pairs_desc,
+                      "indice_pairs_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api_name + ":", filters_grad_desc,
+                      "filters_grad_desc must be contiguous");
 
   // check mlu platform
   if (handle->arch < 372) {

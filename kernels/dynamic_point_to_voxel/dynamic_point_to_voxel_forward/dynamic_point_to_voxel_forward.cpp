@@ -104,7 +104,19 @@ static mluOpStatus_t DynamicPointToVoxelForwardParamCheck(
   PARAM_CHECK(api, point2voxel_map_desc->dim == 1);
   PARAM_CHECK(api, voxel_points_count_desc->dim == 1);
   PARAM_CHECK(api, voxel_num_desc->dim == 1);
-
+  // check stride
+  STRIDE_TENSOR_CHECK(api + ":", feats_desc, "feats_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api + ":", coors_desc, "coors_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api + ":", voxel_feats_desc,
+                      "voxel_feats_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api + ":", voxel_coors_desc,
+                      "voxel_coors_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api + ":", point2voxel_map_desc,
+                      "point2voxel_map_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api + ":", voxel_points_count_desc,
+                      "voxel_points_count_desc must be contiguous");
+  STRIDE_TENSOR_CHECK(api + ":", voxel_num_desc,
+                      "voxel_num_desc must be contiguous");
   // check data type
   PARAM_CHECK_V2(api, (feats_desc->dtype == MLUOP_DTYPE_FLOAT),
                  "Only float are supported in feats tensor, but the data "
@@ -244,7 +256,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpDynamicPointToVoxelForward(
   }
   // generator
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("dynamic_point_to_voxel_forward");
+    GEN_CASE_START("dynamic_point_to_voxel_forward",
+                   "DYNAMIC_POINT_TO_VOXEL_FORWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "feats", feats, feats_desc, -100, 100);
     GEN_CASE_DATA_REAL(true, "coors", coors, coors_desc);

@@ -189,22 +189,33 @@ mluOpStatus_t MLUOP_WIN_API mluOpFocalLossSigmoidForward(
   }
   if (weight_desc != NULL && mluOpGetTensorElementNum(weight_desc) != 0) {
     PARAM_CHECK("[mluOpFocalLossSigmoidForward]", weight != NULL);
+    STRIDE_TENSOR_CHECK("[mluOpFocalLossSigmoidForward]:", weight_desc,
+                        "weight_desc must be contiguous");
   }
   PARAM_CHECK("[mluOpFocalLossSigmoidForward]", input != NULL);
   PARAM_CHECK("[mluOpFocalLossSigmoidForward]", target != NULL);
   PARAM_CHECK("[mluOpFocalLossSigmoidForward]", output != NULL);
+
+  STRIDE_TENSOR_CHECK("[mluOpFocalLossSigmoidForward]:", input_desc,
+                      "input_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpFocalLossSigmoidForward]:", target_desc,
+                      "target_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpFocalLossSigmoidForward]:", output_desc,
+                      "output_desc must be contiguous");
 
   // generate case prototxt.
   const int32_t N = static_cast<int32_t>(input_desc->dims[0]);
   const int32_t C = static_cast<int32_t>(input_desc->dims[1]);
 
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("focal_loss_sigmoid_forward");
+    GEN_CASE_START("focal_loss_sigmoid_forward", "FOCAL_LOSS_SIGMOID_FORWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA_REAL(true, "input", input, input_desc);
-    GEN_CASE_DATA_REAL(true, "target", target, target_desc);
     if (weight != NULL) {
+      GEN_CASE_DATA_REAL_V2(true, "target", target, target_desc, C - 1, 0);
       GEN_CASE_DATA_REAL(true, "weight", weight, weight_desc);
+    } else {
+      GEN_CASE_DATA_REAL_V2(true, "target", target, target_desc, C, 0);
     }
     GEN_CASE_DATA(false, "output", output, output_desc, 0, 0);
     GEN_CASE_OP_PARAM_SINGLE(0, "focal_loss_sigmoid_forward", "prefer", prefer);
@@ -347,6 +358,18 @@ static mluOpStatus_t checkParams(const mluOpTensorDescriptor_t input_desc,
     return MLUOP_STATUS_BAD_PARAM;
   }
 
+  // check stride
+  STRIDE_TENSOR_CHECK("[mluOpFocalLossSigmoidBackward]:", input_desc,
+                      "input_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpFocalLossSigmoidBackward]:", target_desc,
+                      "target_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpFocalLossSigmoidBackward]:", output_desc,
+                      "output_desc must be contiguous");
+  if (weight_desc != NULL) {
+    STRIDE_TENSOR_CHECK("[mluOpFocalLossSigmoidBackward]:", weight_desc,
+                        "weight_desc must be contiguous");
+  }
+
   // check data type
   auto input_dtype = input_desc->dtype;
   auto target_dtype = target_desc->dtype;
@@ -487,7 +510,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpFocalLossSigmoidBackward(
   if (MLUOP_GEN_CASE_ON_NEW) {
     const int upper_bound = is_half ? 5 : 20;
     const int lower_bound = -1 * upper_bound;
-    GEN_CASE_START("focal_loss_sigmoid_backward");
+    GEN_CASE_START("focal_loss_sigmoid_backward",
+                   "FOCAL_LOSS_SIGMOID_BACKWARD");
     GEN_CASE_HANDLE(handle);
     FOCAL_LOSS_GEN_CASE_DATA_REAL(true, "input", input, input_desc, upper_bound,
                                   lower_bound);

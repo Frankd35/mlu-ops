@@ -41,8 +41,10 @@ void GenerateProposalsV2Executor::paramCheck() {
 void GenerateProposalsV2Executor::workspaceMalloc() {
   size_t workspace_size = 0;
   auto tensor_scores = parser_->getMetaTensor("input1").tensor;
-  mluOpGetGenerateProposalsV2WorkspaceSize(handle_, tensor_scores,
-                                           &workspace_size);
+  int pre_nms_top_n =
+      parser_->getProtoNode()->generate_proposals_v2_param().pre_nms_top_n();
+  mluOpGetGenerateProposalsV2WorkspaceSize_v2(handle_, tensor_scores,
+                                              pre_nms_top_n, &workspace_size);
 
   VLOG(4) << "Malloc workspace space.";
   void *temp = mlu_runtime_.allocate(workspace_size);
@@ -118,14 +120,14 @@ void GenerateProposalsV2Executor::compute() {
   auto rpn_rois_batch_size_ptr = parser_->getMetaTensor("output4").dev_ptr;
 
   VLOG(4) << "[mluOpGenerateProposalsV2] call "
-             "mluOpGetGenerateProposalsV2WorkspaceSize()";
+             "mluOpGetGenerateProposalsV2WorkspaceSize_v2()";
   size_t workspace_size = 0;
-  MLUOP_CHECK(mluOpGetGenerateProposalsV2WorkspaceSize(handle_, tensor_scores,
-                                                       &workspace_size));
+  MLUOP_CHECK(mluOpGetGenerateProposalsV2WorkspaceSize_v2(
+      handle_, tensor_scores, pre_nms_top_n, &workspace_size));
   interface_timer_.start();
 
   VLOG(4) << "[mluOpGenerateProposalsV2] call "
-             "mluOpGetGenerateProposalsV2WorkspaceSize()";
+             "mluOpGetGenerateProposalsV2WorkspaceSize_v2()";
 
   MLUOP_CHECK(mluOpGenerateProposalsV2(
       handle_, pre_nms_top_n, post_nms_top_n, nms_thresh, min_size, eta,

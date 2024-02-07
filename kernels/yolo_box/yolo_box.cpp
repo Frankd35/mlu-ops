@@ -94,8 +94,9 @@ static mluOpStatus_t yoloBoxParamCheck(
   PARAM_CHECK(op_name, (x_desc->dims[0] == scores_desc->dims[0]));
 
   const int anchors_num = anchors_desc->dims[0] / 2;
+  std::string anchors_num_str = "anchors_num = anchors_desc->dims[0] / 2.";
   PARAM_CHECK(op_name, (anchors_desc->dims[0] % 2 == 0));
-  PARAM_CHECK(op_name, anchors_num > 0);
+  PARAM_CHECK_V2(op_name, anchors_num > 0, << anchors_num_str);
   PARAM_CHECK(op_name, class_num > 0);
 
   const int class_num_thresh = handle->arch >= MLUOP_MLU370
@@ -107,11 +108,13 @@ static mluOpStatus_t yoloBoxParamCheck(
       iou_aware ? anchors_num * (6 + class_num) : anchors_num * (5 + class_num);
   PARAM_CHECK(op_name, (x_desc->dims[1] == dim_c));
   PARAM_CHECK(op_name, (img_size_desc->dims[1] == 2));
-  PARAM_CHECK(op_name, (boxes_desc->dims[1] == anchors_num));
+  PARAM_CHECK_V2(op_name, (boxes_desc->dims[1] == anchors_num),
+                 << anchors_num_str);
   PARAM_CHECK(op_name, (boxes_desc->dims[2] == 4));
   PARAM_CHECK(op_name,
               (boxes_desc->dims[3] == (x_desc->dims[2] * x_desc->dims[3])));
-  PARAM_CHECK(op_name, (scores_desc->dims[1] == anchors_num));
+  PARAM_CHECK_V2(op_name, (scores_desc->dims[1] == anchors_num),
+                 << anchors_num_str);
   PARAM_CHECK(op_name, (scores_desc->dims[2] == class_num));
   PARAM_CHECK(op_name,
               (scores_desc->dims[3] == (x_desc->dims[2] * x_desc->dims[3])));
@@ -159,6 +162,17 @@ mluOpStatus_t MLUOP_WIN_API mluOpYoloBox(
     return param_check;
   }
 
+  // check stride
+  STRIDE_TENSOR_CHECK("[mluOpYoloBox]:", x_desc, "x_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpYoloBox]:", img_size_desc,
+                      "img_size_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpYoloBox]:", anchors_desc,
+                      "anchors_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpYoloBox]:", boxes_desc,
+                      "boxes_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpYoloBox]:", scores_desc,
+                      "scores_desc must be contiguous");
+
   // check zero element
   if (zero_element == true) {
     VLOG(5) << "[mluOpYoloBox] Input skip zero element tensor.";
@@ -166,7 +180,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpYoloBox(
   }
 
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("yolo_box");
+    GEN_CASE_START("yolo_box", "YOLO_BOX");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "x", x, x_desc, 10, 0);
     GEN_CASE_DATA(true, "img_size", img_size, img_size_desc, 1000, 100);

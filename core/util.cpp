@@ -22,9 +22,10 @@
  *************************************************************************/
 
 #include <string>
-#include <stdexcept>
-#include "mlu_op.h"
+
 #include "core/logging.h"
+#include "core/util.h"
+#include "mlu_op.h"
 
 void mluOpCheck(mluOpStatus_t result, char const *const func,
                 const char *const file, int const line) {
@@ -32,6 +33,24 @@ void mluOpCheck(mluOpStatus_t result, char const *const func,
     std::string error = "\"" + std::string(mluOpGetErrorString(result)) +
                         " in " + std::string(func) + "\"";
     LOG(ERROR) << error;
+    // TODO(liuduanhui): Remove error throwing in c library in future.
+    //                   MLUOP_CHECK should not be used in host side code.
+    //                   And now it is only used in gtest code.
     throw std::runtime_error(error);
   }
+}
+
+bool isStrideTensor(const int dim, const int64_t *dims,
+                    const int64_t *strides) {
+  int64_t stride_base = 1;
+
+  for (int i = dim - 1; i >= 0; i--) {
+    if (dims[i] != 1 && strides[i] != stride_base) {
+      return true;
+    }
+
+    stride_base *= dims[i];
+  }
+
+  return false;
 }

@@ -104,6 +104,14 @@ mluOpStatus_t MLUOP_WIN_API mluOpBallQuery(
   PARAM_CHECK("[mluOpBallQuery]", xyz_desc->dims[2] == 3);
   PARAM_CHECK("[mluOpBallQuery]", idx_desc->dims[2] == nsample);
 
+  // check stride
+  STRIDE_TENSOR_CHECK("[mluOpBallQuery]:", new_xyz_desc,
+                      "new_xyz_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpBallQuery]:", xyz_desc,
+                      "xyz_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpBallQuery]:", idx_desc,
+                      "idx_desc must be contiguous");
+
   // check dtype
   if (!isSupportType(new_xyz_desc->dtype, support_type, 2)) {
     LOG(ERROR) << "[mluOpBallQuery]:Only half and float are supported in input "
@@ -171,7 +179,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpBallQuery(
   PARAM_CHECK("[mluOpBallQuery]", idx != NULL);
 
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("ball_query");
+    GEN_CASE_START("ball_query", "BALL_QUERY");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA_REAL(true, "input1", new_xyz, new_xyz_desc);
     GEN_CASE_DATA_REAL(true, "input2", xyz, xyz_desc);

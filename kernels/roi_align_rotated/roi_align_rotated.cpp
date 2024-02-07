@@ -60,10 +60,17 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAlignRotatedForward(
   PARAM_CHECK(API, features_desc->layout == MLUOP_LAYOUT_NHWC);
   PARAM_CHECK(API, output_desc->layout == MLUOP_LAYOUT_NHWC);
 
-  PARAM_CHECK(API, (features_desc->dtype == output_desc->dtype) &&
-                       (output_desc->dtype == rois_desc->dtype));
+  PARAM_CHECK(API, features_desc->dtype == output_desc->dtype);
+  PARAM_CHECK(API, output_desc->dtype == rois_desc->dtype);
   PARAM_CHECK(API, features_desc->dtype == MLUOP_DTYPE_FLOAT ||
                        features_desc->dtype == MLUOP_DTYPE_HALF);
+
+  STRIDE_TENSOR_CHECK("[mluOpRoiAlignRotatedForward]:", features_desc,
+                      "features_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRoiAlignRotatedForward]:", rois_desc,
+                      "rois_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRoiAlignRotatedForward]:", output_desc,
+                      "output_desc must be contiguous");
 
   PARAM_CHECK_EQ(API, rois_desc->dim, 2);
   PARAM_CHECK_EQ(API, output_desc->dim, 4);
@@ -116,7 +123,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAlignRotatedForward(
           << ".";
 
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("roi_align_rotated_forward");
+    GEN_CASE_START("roi_align_rotated_forward", "ROI_ALIGN_ROTATED_FORWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "input1", features, features_desc, 10, 0);
     GEN_CASE_DATA_REAL(true, "input2", rois, rois_desc);
@@ -143,9 +150,10 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAlignRotatedForward(
   policyFunc(handle, rois_nums * pooled_height * pooled_width, &k_dim, &k_type);
   VLOG(5) << "[mluOpRoiAlignRotatedForward] launch kernel policyFunc["
           << k_dim.x << ", " << k_dim.y << ", " << k_dim.z << "].";
-  KERNEL_CHECK((KernelRoiAlignRotatedForward(
-      k_dim, k_type, handle->queue, features_desc->dtype, features, rois, batch,
-      height, width, channel, rois_nums, roiAlignRotatedParams, output)));
+  CHECK_RETURN(API, KernelRoiAlignRotatedForward(
+                        k_dim, k_type, handle->queue, features_desc->dtype,
+                        features, rois, batch, height, width, channel,
+                        rois_nums, roiAlignRotatedParams, output));
   VLOG(5) << "Kernel KernelRoiAlignRotatedForward.";
   GEN_CASE_END();
   return MLUOP_STATUS_SUCCESS;
@@ -172,6 +180,13 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAlignRotatedBackward(
                        (bottom_grad_desc->dtype == rois_desc->dtype));
   PARAM_CHECK(API, bottom_grad_desc->dtype == MLUOP_DTYPE_FLOAT ||
                        bottom_grad_desc->dtype == MLUOP_DTYPE_HALF);
+
+  STRIDE_TENSOR_CHECK("[mluOpRoiAlignRotatedBackward]:", top_grad_desc,
+                      "top_grad_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRoiAlignRotatedBackward]:", rois_desc,
+                      "rois_desc must be contiguous");
+  STRIDE_TENSOR_CHECK("[mluOpRoiAlignRotatedBackward]:", bottom_grad_desc,
+                      "bottom_grad_desc must be contiguous");
 
   PARAM_CHECK_EQ(API, rois_desc->dim, 2);
   PARAM_CHECK_EQ(API, top_grad_desc->dim, 4);
@@ -225,7 +240,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAlignRotatedBackward(
           << ".";
 
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("roi_align_rotated_backward");
+    GEN_CASE_START("roi_align_rotated_backward", "ROI_ALIGN_ROTATED_BACKWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "input1", top_grad, top_grad_desc, 10, 0);
     GEN_CASE_DATA_REAL(true, "input2", rois, rois_desc);
@@ -267,9 +282,10 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAlignRotatedBackward(
   }
   VLOG(5) << "cnnlFill_v3 end.";
 
-  KERNEL_CHECK((KernelRoiAlignRotatedBackward(
-      k_dim, k_type, handle->queue, top_grad_desc->dtype, top_grad, rois, batch,
-      height, width, channel, rois_nums, roiAlignRotatedParams, bottom_grad)));
+  CHECK_RETURN(API, KernelRoiAlignRotatedBackward(
+                        k_dim, k_type, handle->queue, top_grad_desc->dtype,
+                        top_grad, rois, batch, height, width, channel,
+                        rois_nums, roiAlignRotatedParams, bottom_grad));
   VLOG(5) << "Kernel KernelRoiAlignRotatedBackward.";
   GEN_CASE_END();
   return MLUOP_STATUS_SUCCESS;
