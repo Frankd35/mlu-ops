@@ -1,0 +1,158 @@
+#include "lgamma.h"
+
+#include "core/logging.h"
+#include "kernels/debug.h"
+#include "kernels/kernel.h"
+#include "kernels/unary_op/unary_op_3pipeline.h"
+#include "kernels/unary_op/unary_op_5pipeline.h"
+
+#define LGAMMA_NRAM_USED MAX_NRAM_SIZE
+#define LGAMMA_SRAM_USED (CORE_DIM * LGAMMA_NRAM_USED)
+
+__nram__ char nram_buffer[LGAMMA_NRAM_USED];
+
+__mlu_func__ float calc_lgamma(const float &input);
+__mlu_func__ half calc_lgamma(const half &input);
+
+template <typename T>
+__mlu_func__ void get3OffsetLgammaFast(int32_t &offset_x_half,
+                                    int32_t &offset_aux_a,
+                                    int32_t &offset_aux_b, int32_t &num_deal,
+                                    int32_t &num_pong) {
+  // ping-pong buffer
+  num_deal = FLOOR_ALIGN(LGAMMA_NRAM_USED / sizeof(T) / 2, UNARY_ALIGN_NUM);
+  // compute one buffer each time
+  num_pong = num_deal;
+  // using nram_buffer as both input/output buffer
+  offset_x_half = 0;
+  // not used
+  offset_aux_a = 0;
+  offset_aux_b = 0;
+}
+
+template <typename T>
+__mlu_func__ void computeLgammaFast(T *nram_x, T *nram_x_half, T *nram_aux_a,
+                                    T *nram_aux_b, const int32_t deal_num,
+                                    const int32_t actual_num, const float coef) {
+  for (size_t i = 0; i < actual_num; i++) {
+    nram_x[i] = calc_lgamma(nram_x_half[i]);
+  }
+}
+
+UNARY_OP_KERNEL_3PIPELINE_IMPLE(Lgamma, float, Fast);
+UNARY_OP_KERNEL_3PIPELINE_IMPLE(Lgamma, half, Fast);
+
+mluOpStatus_t MLUOP_WIN_API
+Kernel3StagePipelineLgamma(const cnrtDim3_t k_dim, const cnrtFunctionType_t k_type,
+                        const cnrtQueue_t queue, const mluOpDataType_t d_type,
+                        const void *x, void *y, const int32_t num) {
+  if (d_type == MLUOP_DTYPE_FLOAT) {
+    KERNEL_CHECK(
+        MLUBlockKernel3StagePipelineLgammafloatFast<<<k_dim, k_type, queue>>>(
+            (void *)x, (void *)y, num, 0.0));
+  } else {
+    // half
+    KERNEL_CHECK(
+        MLUBlockKernel3StagePipelineLgammahalfFast<<<k_dim, k_type, queue>>>(
+            (void *)x, (void *)y, num, 0.0));
+  }
+  return MLUOP_STATUS_SUCCESS;
+}
+
+
+__mlu_func__ float calc_lgamma(const float &input) {
+  static float kLanczosGamma = 7;  // aka g
+  static float kBaseLanczosCoeff = 0.99999999999980993227684700473478;
+  static const float log_lanczos_gamma_plus_one_half = 2.014903; //log(kLanczosGamma + 0.5);
+  static float kLanczosCoefficients[8] = {
+  676.520368121885098567009190444019, -1259.13921672240287047156078755283,
+  771.3234287776530788486528258894,   -176.61502916214059906584551354,
+  12.507343278686904814458936853,     -0.13857109526572011689554707,
+  9.984369578019570859563e-6,         1.50563273514931155834e-7};
+
+  static float log_pi = 1.144730; // log(M_PI);
+  static float log_sqrt_two_pi = 0.918939; // (log(2) + log(M_PI)) / 2;
+
+  /** If the input is less than 0.5 use Euler's reflection formula:
+   * gamma(x) = pi / (sin(pi * x) * gamma(1 - x))
+   */
+  bool need_to_reflect = (input < 0.5);
+  float input_after_reflect = need_to_reflect ? -input : input - 1;  // aka z
+
+  float sum = kBaseLanczosCoeff;  // aka x
+  for (int i = 0, end = 8; i < end; ++i) {
+    float lanczos_coefficient = kLanczosCoefficients[i];
+
+    sum += lanczos_coefficient / (input_after_reflect + i + 1);
+  }
+
+  float gamma_plus_onehalf_plus_z = kLanczosGamma + 0.5 + input_after_reflect;  // aka t
+
+  float log_t = log_lanczos_gamma_plus_one_half + log1pf(input_after_reflect / (kLanczosGamma + 0.5));
+
+  float log_y = log_sqrt_two_pi + (input_after_reflect + 0.5 - gamma_plus_onehalf_plus_z / log_t) * log_t + log(sum);
+
+  float abs_input = fabs(input);
+  float abs_frac_input = abs_input - floorf(abs_input);
+
+  float reduced_frac_input = (abs_frac_input > 0.5) ? 1 - abs_frac_input : abs_frac_input;
+  float reflection_denom = log(sinf(M_PI * reduced_frac_input));
+
+  // std::isfinite --> seg fault?
+  // float reflection = std::isfinite(reflection_denom) ? log_pi - reflection_denom - log_y : -reflection_denom;
+  float reflection = !(isnan(reflection_denom) || isinf(reflection_denom)) ? log_pi - reflection_denom - log_y : -reflection_denom;
+
+  float result = need_to_reflect ? reflection : log_y;
+
+  // return std::isinf(input) ? std::numeric_limits<T>::infinity() : result;
+  return isinf(input) ? INFINITY : result;
+}
+
+__mlu_func__ half calc_lgamma(const half &input_half) {
+  float input = __half2float(input_half);
+  static float kLanczosGamma = 7;  // aka g
+  static float kBaseLanczosCoeff = 0.99999999999980993227684700473478;
+  static const float log_lanczos_gamma_plus_one_half = 2.014903; //log(kLanczosGamma + 0.5);
+  static float kLanczosCoefficients[8] = {
+  676.520368121885098567009190444019, -1259.13921672240287047156078755283,
+  771.3234287776530788486528258894,   -176.61502916214059906584551354,
+  12.507343278686904814458936853,     -0.13857109526572011689554707,
+  9.984369578019570859563e-6,         1.50563273514931155834e-7};
+
+  static float log_pi = 1.144730; // log(M_PI);
+  static float log_sqrt_two_pi = 0.918939; // (log(2) + log(M_PI)) / 2;
+
+  /** If the input is less than 0.5 use Euler's reflection formula:
+   * gamma(x) = pi / (sin(pi * x) * gamma(1 - x))
+   */
+  bool need_to_reflect = (input < 0.5);
+  float input_after_reflect = need_to_reflect ? -input : input - 1;  // aka z
+
+  float sum = kBaseLanczosCoeff;  // aka x
+  for (int i = 0, end = 8; i < end; ++i) {
+    float lanczos_coefficient = kLanczosCoefficients[i];
+
+    sum += lanczos_coefficient / (input_after_reflect + i + 1);
+  }
+
+  float gamma_plus_onehalf_plus_z = kLanczosGamma + 0.5 + input_after_reflect;  // aka t
+
+  float log_t = log_lanczos_gamma_plus_one_half + log1pf(input_after_reflect / (kLanczosGamma + 0.5));
+
+  float log_y = log_sqrt_two_pi + (input_after_reflect + 0.5 - gamma_plus_onehalf_plus_z / log_t) * log_t + log(sum);
+
+  float abs_input = fabs(input);
+  float abs_frac_input = abs_input - floorf(abs_input);
+
+  float reduced_frac_input = (abs_frac_input > 0.5) ? 1 - abs_frac_input : abs_frac_input;
+  float reflection_denom = log(sinf(M_PI * reduced_frac_input));
+
+  // std::isfinite --> seg fault?
+  // float reflection = std::isfinite(reflection_denom) ? log_pi - reflection_denom - log_y : -reflection_denom;
+  float reflection = !(isnan(reflection_denom) || isinf(reflection_denom)) ? log_pi - reflection_denom - log_y : -reflection_denom;
+
+  float result = need_to_reflect ? reflection : log_y;
+
+  // return std::isinf(input) ? std::numeric_limits<T>::infinity() : result;
+  return isinf(input) ? INFINITY : __float2half(result);
+}
