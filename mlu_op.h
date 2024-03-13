@@ -14139,6 +14139,16 @@ mluOpExecFFT(mluOpHandle_t handle,
  */
 mluOpStatus_t MLUOP_WIN_API
 mluOpDestroyFFTPlan(mluOpFFTPlan_t fft_plan);
+
+
+// FIXME -- code style
+mluOpStatus_t MLUOP_WIN_API mluOpLgamma(mluOpHandle_t handle,
+                                      const mluOpTensorDescriptor_t x_desc,
+                                      const void *x,
+                                      const mluOpTensorDescriptor_t y_desc,
+                                      void *y)
+;
+
 #if defined(__cplusplus)
 }
 #endif
