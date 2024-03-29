@@ -6,7 +6,7 @@
 #include "kernels/unary_op/unary_op_3pipeline.h"
 #include "kernels/unary_op/unary_op_5pipeline.h"
 
-#define LGAMMA_NRAM_USED MAX_NRAM_SIZE
+#define LGAMMA_NRAM_USED (MAX_NRAM_SIZE - 5*1024)
 #define LGAMMA_SRAM_USED (CORE_DIM * LGAMMA_NRAM_USED)
 
 __nram__ char nram_buffer[LGAMMA_NRAM_USED];
@@ -39,8 +39,241 @@ __mlu_func__ void computeLgammaFast(T *nram_x, T *nram_x_half, T *nram_aux_a,
   }
 }
 
-UNARY_OP_KERNEL_3PIPELINE_IMPLE(Lgamma, float, Fast);
-UNARY_OP_KERNEL_3PIPELINE_IMPLE(Lgamma, half, Fast);
+// // if loc has nan/inf, fill invalid value with 0.
+// // first we cast float32 to int32. then multiply -1, whose hex is 0xffffffff
+// // if loc has nan/inf, fill all invalid potision with 0. Note that this operation handles in bit-scale.
+// #define __check_infinte(valid_mask, deal_num) 
+
+// const int nan_half_value = 0xffff;
+// const int inf_half_value = 0xfc00;
+const int nan_float_value = 0x7fc00000;
+const int nan_float_mask = nan_float_value & 0x0fffffff;
+const int inf_float_value = 0x7f800000;
+
+#define AUX_N 5
+#define fs0 aux_array[0]
+#define fs1 aux_array[1]
+#define fs2 aux_array[2]
+#define fs4 aux_array[3]
+#define fa5 aux_array[4]
+#define fa0 aux_array[5]
+
+// macro for vector multiplexer 2 to 1, sel is 0/1 vector
+// dst = a*sel + !sel*b
+// TODO: opt the mul, see logic functions
+// a can overlap with dst
+#define __bang_mux2(dst, a, b, sel, sz) __bang_mul(dst, a, sel, sz); \
+                                        __bang_eq_scalar(sel, sel, 0, sz); \
+                                        __bang_mul(sel, b, sel, sz); \
+                                        __bang_add(dst, dst, sel, sz)
+
+#define __bang_isinfinite(dst, src, sz) __bang_band_scalar(dst, src, inf_float_value, sz); \
+                                        __bang_eq_scalar(dst, dst, inf_float_value, sz)
+
+#define __bang_isinf(dst, src, sz) __bang_band_scalar(dst, src, nan_float_mask, sz); \
+                                   __bang_eq_scalar(dst, dst, inf_float_value, sz)
+
+
+
+template <typename T>
+__mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
+  static const float log_pi = 1.144730;
+  static const float log_sqrt_two_pi = 0.918939;
+  static const float kLanczosGamma = 7; 
+  static const float kBaseLanczosCoeff = 0.99999999999980993227684700473478;
+  static const float log_lanczos_gamma_plus_one_half = 2.014903;
+
+  int core_n = total / taskDim;   // size of vector that each core computing 
+  x += core_n*taskId;
+  y += core_n*taskId;
+  core_n = taskId != taskDim - 1 ? core_n : total - taskId*core_n;
+
+  float* aux_array[AUX_N];
+  int arr_size = FLOOR_ALIGN(LGAMMA_NRAM_USED / sizeof(float) / AUX_N, UNARY_ALIGN_NUM);
+  int pos = 0;
+  for (size_t i = 0; i < AUX_N; i++) {
+    aux_array[i] = (float*)nram_buffer + pos;
+    pos += arr_size;
+  }
+
+  // __bang_printf("taskId(%d)\ttotal: %d, each core: %d, arr size: %d\n", taskId, total, core_n, arr_size);
+  for (size_t i = 0; i < core_n; i += arr_size) {
+    int num_deal = i + arr_size > core_n ? core_n - i : arr_size;
+    // __bang_printf("[%d]: num_deal=%d\n", i, num_deal);
+
+    // using fs1 -> input
+    // __bang_printf("memcpy from (x+%d), byte: %d\n", i, num_deal*sizeof(float));
+    if (sizeof(T) == sizeof(float)) {
+      __memcpy(fs1, x + i, num_deal*sizeof(float), GDRAM2NRAM);  
+    } else if (sizeof(T) == sizeof(half)) {  // half
+      __memcpy(fs0, x + i, num_deal*sizeof(half), GDRAM2NRAM);  
+      __bang_half2float(fs1, (half *)fs0, num_deal);
+    }
+    // __bang_printf("ckpt0, %lf\n", *(fs1));
+
+    /**
+     * bool need_to_reflect = (input < 0.5); 
+     */
+    __bang_lt_scalar(fa5, fs1, 0.5, num_deal);
+
+    /**
+     * float input_after_reflect = need_to_reflect ? -input : input - 1;  // aka z
+     */
+    // using fs0 -> input_after_reflect
+    __bang_mul_scalar(fs0, fs1, -1, num_deal);
+    __bang_add_scalar(fs2, fs1, -1, num_deal);
+    __bang_mux2(fs0, fs0, fs2, fa5, num_deal);
+    // __bang_printf("ckpt2, %lf\n", *(fs0));
+
+    /**
+     * float sum = kBaseLanczosCoeff;  // aka x
+     * for (int i = 0, end = 8; i < end; ++i) {
+     *   float lanczos_coefficient = kLanczosCoefficients[i];
+     *   sum += lanczos_coefficient / (input_after_reflect + i + 1);
+     * }
+     */
+    // do loop flatten, using fs2 -> sum
+    __bang_write_value(fs2, num_deal, (float)kBaseLanczosCoeff);
+    __bang_write_value(fa5, num_deal, (float)676.520368121885098844);
+    __bang_add_scalar(fs4, fs0, 1, num_deal);
+    __mluop_div(fs4, fa5, fs4, (float *)0, 0, num_deal);    // __bang_div(fs4, fa5, fs4, num_deal);
+    __bang_add(fs2, fs2, fs4, num_deal);
+    __bang_write_value(fa5, num_deal, (float)-1259.139216722402807136);
+    __bang_add_scalar(fs4, fs0, 2, num_deal);
+    __mluop_div(fs4, fa5, fs4, (float *)0, 0, num_deal);    // __bang_div(fs4, fa5, fs4, num_deal);
+    __bang_add(fs2, fs2, fs4, num_deal);
+    __bang_write_value(fa5, num_deal, (float)771.323428777653134603);
+    __bang_add_scalar(fs4, fs0, 3, num_deal);
+    __mluop_div(fs4, fa5, fs4, (float *)0, 0, num_deal);    // __bang_div(fs4, fa5, fs4, num_deal);
+    __bang_add(fs2, fs2, fs4, num_deal);
+    __bang_write_value(fa5, num_deal, (float)-176.615029162140587005);
+    __bang_add_scalar(fs4, fs0, 4, num_deal);
+    __mluop_div(fs4, fa5, fs4, (float *)0, 0, num_deal);    // __bang_div(fs4, fa5, fs4, num_deal);
+    __bang_add(fs2, fs2, fs4, num_deal);
+    __bang_write_value(fa5, num_deal, (float)12.507343278686905208);
+    __bang_add_scalar(fs4, fs0, 5, num_deal);
+    __mluop_div(fs4, fa5, fs4, (float *)0, 0, num_deal);    // __bang_div(fs4, fa5, fs4, num_deal);
+    __bang_add(fs2, fs2, fs4, num_deal);
+    __bang_write_value(fa5, num_deal, (float)-0.138571095265720118);
+    __bang_add_scalar(fs4, fs0, 6, num_deal);
+    __mluop_div(fs4, fa5, fs4, (float *)0, 0, num_deal);    // __bang_div(fs4, fa5, fs4, num_deal);
+    __bang_add(fs2, fs2, fs4, num_deal);
+    __bang_write_value(fa5, num_deal, (float)0.000009984369578020);
+    __bang_add_scalar(fs4, fs0, 7, num_deal);
+    __mluop_div(fs4, fa5, fs4, (float *)0, 0, num_deal);    // __bang_div(fs4, fa5, fs4, num_deal);
+    __bang_add(fs2, fs2, fs4, num_deal);
+    __bang_write_value(fa5, num_deal, (float)0.000000150563273515);
+    __bang_add_scalar(fs4, fs0, 8, num_deal);
+    __mluop_div(fs4, fa5, fs4, (float *)0, 0, num_deal);    // __bang_div(fs4, fa5, fs4, num_deal);
+    __bang_add(fs2, fs2, fs4, num_deal);
+    // __bang_printf("ckpt3, %lf\n", *(fs2));
+
+    /**
+     * float gamma_plus_onehalf_plus_z = kLanczosGamma + 0.5 + input_after_reflect;  // aka t
+     */
+    // using fs4 -> gamma_plus_onehalf_plus_z
+    __bang_add_scalar(fs4, fs0, kLanczosGamma+0.5, num_deal);
+
+    /** 
+     * float log_t = log_lanczos_gamma_plus_one_half + log1pf(input_after_reflect / (kLanczosGamma + 0.5));
+     */
+    // using fa5 -> log_t
+    __bang_write_value(fa5, num_deal, (float)(kLanczosGamma+0.5));
+    __mluop_div(fa5, fs0, fa5, (float *)0, 0, num_deal);
+    __bang_add_scalar(fa5, fa5, 1, num_deal);
+    __bang_active_log(fa5, fa5, num_deal);
+    __bang_add_scalar(fa5, fa5, log_lanczos_gamma_plus_one_half, num_deal);
+    // __bang_printf("ckpt4, %lf\n", *(fa5));
+
+    /**
+     * float log_y = log_sqrt_two_pi + (input_after_reflect + 0.5 - gamma_plus_onehalf_plus_z / log_t) * log_t + log(sum);
+     *  ---->
+     *        log_y = log_sqrt_two_pi + (input_after_reflect + 0.5) * log_t - gamma_plus_onehalf_plus_z + log(sum)
+    */
+    // using fs0 -> log_y
+    __bang_active_log(fs2, fs2, num_deal);
+    __bang_add_scalar(fs0, fs0, 0.5, num_deal);
+    __bang_mul(fs0, fs0, fa5, num_deal);
+    __bang_add_scalar(fs0, fs0, log_sqrt_two_pi, num_deal);
+    __bang_sub(fs0, fs0, fs4, num_deal);
+    __bang_add(fs0, fs0, fs2, num_deal);
+    // __bang_printf("ckpt5, log_y = %lf\n", *(fs0));
+
+    /**
+     * float abs_input = fabs(input);
+     * float abs_frac_input = abs_input - floorf(abs_input);
+    */
+    // using fa5 -> abs_frac_input
+    __bang_abs(fs2, fs1, num_deal);
+    __bang_floor(fs4, fs2, num_deal);
+    __bang_sub(fa5, fs2, fs4, num_deal);
+
+    /**
+     * float reduced_frac_input = (abs_frac_input > 0.5) ? 1 - abs_frac_input : abs_frac_input;
+    */
+    // using fa5 -> reduced_frac_input
+    __bang_gt_scalar(fs2, fa5, 0.5, num_deal);
+    __bang_mul_scalar(fs4, fa5, -1, num_deal);
+    __bang_add_scalar(fs4, fs4, 1, num_deal);
+    __bang_mux2(fa5, fs4, fa5, fs2, num_deal);
+
+    /**
+     * float reflection_denom = log(sinf(M_PI * reduced_frac_input));
+    */
+    // using fs2 -> reflection_denom
+    __bang_mul_scalar(fs2, fa5, M_PI, num_deal);
+    // __bang_printf("ckpt5 mul = %lf\n", *(fs2));
+    __bang_sin(fs2, fs2, num_deal);               // active sin ?
+    // __bang_printf("ckpt5 sin = %lf\n", *(fs2));
+    __bang_log(fs2, fs2, num_deal);               // active log ?
+    // __bang_printf("ckpt5 reflection_denom = %lf\n", *(fs2));
+    // __bang_printf("ckpt5 reflection_denom = %0x\n", *(fs2));
+    
+    /**
+     * float reflection = std::isfinite(reflection_denom) ? log_pi - reflection_denom - log_y : -reflection_denom;
+    */
+    // using fs4 -> reflection
+    __bang_write_zero(fa5, num_deal);
+    // __bang_printf("ckpt6  -reflection_denom = %0x\n", *(fs4));
+    __bang_sub(fs2, fa5, fs2, num_deal);
+    __bang_isinfinite(fa5, fs2, num_deal);
+    // __bang_printf("ckpt6 __bang_isinfinite reflection_denom = %lf\n", *(fa5));
+    __bang_sub(fs4, fs2, fs0, num_deal);
+    // __bang_printf("ckpt6  - reflection_denom - log_y = %0x\n", *(fs4));
+    __bang_add_scalar(fs4, fs4, log_pi, num_deal);
+    // __bang_printf("ckpt6 log_pi - reflection_denom - log_y = %0x\n", *(fs4));
+    __bang_mux2(fs4, fs4, fs2, fa5, num_deal);
+    // __bang_printf("ckpt6, %lf\n", *(fs4));
+
+
+    /**
+     * float result = need_to_reflect ? reflection : log_y;
+    */
+    // using fs2 -> result
+    __bang_lt_scalar(fa5, fs1, 0.5, num_deal);
+    __bang_mux2(fs2, fs4, fs0, fa5, num_deal);
+    // __bang_printf("ckpt7, %lf\n", *(fs2));
+
+    /**
+     * return isinf(input) ? INFINITY : result;
+    */ 
+    __bang_isinf(fa5, fs2, num_deal);
+    // __bang_printf("__bang_isinf(%lf) = %f\n", *(fs2), *(fa5));
+    __bang_write_value(fs4, num_deal, (float)(inf_float_value));
+    __bang_mux2(fs1, fs4, fs2, fa5, num_deal);
+    // __bang_printf("ckpt8, %lf\n", *(fs1));
+
+
+    if (sizeof(T) == sizeof(float)) {
+      __memcpy(y + i, fs1, num_deal*sizeof(float), NRAM2GDRAM);  
+    } else if (sizeof(T) == sizeof(half)) {  // half
+      __mluop_float2half((half *)fs1, fs1, num_deal);
+      __memcpy(y + i, fs1, num_deal*sizeof(half), NRAM2GDRAM);  
+    }
+    // __bang_printf("end\n");
+  } 
+}
+
 
 mluOpStatus_t MLUOP_WIN_API
 Kernel3StagePipelineLgamma(const cnrtDim3_t k_dim, const cnrtFunctionType_t k_type,
@@ -48,111 +281,17 @@ Kernel3StagePipelineLgamma(const cnrtDim3_t k_dim, const cnrtFunctionType_t k_ty
                         const void *x, void *y, const int32_t num) {
   if (d_type == MLUOP_DTYPE_FLOAT) {
     KERNEL_CHECK(
-        MLUBlockKernel3StagePipelineLgammafloatFast<<<k_dim, k_type, queue>>>(
-            (void *)x, (void *)y, num, 0.0));
+        // MLUBlockKernel3StagePipelineLgammafloatFast<<<k_dim, k_type, queue>>>(
+        //     (void *)x, (void *)y, num, 0.0));
+        MLUBlockKernelLgamma<<<k_dim, k_type, queue>>>((float*)x, (float*)y, num);
+    );
   } else {
     // half
     KERNEL_CHECK(
-        MLUBlockKernel3StagePipelineLgammahalfFast<<<k_dim, k_type, queue>>>(
-            (void *)x, (void *)y, num, 0.0));
+        // MLUBlockKernel3StagePipelineLgammahalfFast<<<k_dim, k_type, queue>>>(
+        //     (void *)x, (void *)y, num, 0.0));
+        MLUBlockKernelLgamma<<<k_dim, k_type, queue>>>((half*)x, (half*)y, num);
+    );
   }
   return MLUOP_STATUS_SUCCESS;
-}
-
-
-__mlu_func__ float calc_lgamma(const float &input) {
-  static float kLanczosGamma = 7;  // aka g
-  static float kBaseLanczosCoeff = 0.99999999999980993227684700473478;
-  static const float log_lanczos_gamma_plus_one_half = 2.014903; //log(kLanczosGamma + 0.5);
-  static float kLanczosCoefficients[8] = {
-  676.520368121885098567009190444019, -1259.13921672240287047156078755283,
-  771.3234287776530788486528258894,   -176.61502916214059906584551354,
-  12.507343278686904814458936853,     -0.13857109526572011689554707,
-  9.984369578019570859563e-6,         1.50563273514931155834e-7};
-
-  static float log_pi = 1.144730; // log(M_PI);
-  static float log_sqrt_two_pi = 0.918939; // (log(2) + log(M_PI)) / 2;
-
-  /** If the input is less than 0.5 use Euler's reflection formula:
-   * gamma(x) = pi / (sin(pi * x) * gamma(1 - x))
-   */
-  bool need_to_reflect = (input < 0.5);
-  float input_after_reflect = need_to_reflect ? -input : input - 1;  // aka z
-
-  float sum = kBaseLanczosCoeff;  // aka x
-  for (int i = 0, end = 8; i < end; ++i) {
-    float lanczos_coefficient = kLanczosCoefficients[i];
-
-    sum += lanczos_coefficient / (input_after_reflect + i + 1);
-  }
-
-  float gamma_plus_onehalf_plus_z = kLanczosGamma + 0.5 + input_after_reflect;  // aka t
-
-  float log_t = log_lanczos_gamma_plus_one_half + log1pf(input_after_reflect / (kLanczosGamma + 0.5));
-
-  float log_y = log_sqrt_two_pi + (input_after_reflect + 0.5 - gamma_plus_onehalf_plus_z / log_t) * log_t + log(sum);
-
-  float abs_input = fabs(input);
-  float abs_frac_input = abs_input - floorf(abs_input);
-
-  float reduced_frac_input = (abs_frac_input > 0.5) ? 1 - abs_frac_input : abs_frac_input;
-  float reflection_denom = log(sinf(M_PI * reduced_frac_input));
-
-  // std::isfinite --> seg fault?
-  // float reflection = std::isfinite(reflection_denom) ? log_pi - reflection_denom - log_y : -reflection_denom;
-  float reflection = !(isnan(reflection_denom) || isinf(reflection_denom)) ? log_pi - reflection_denom - log_y : -reflection_denom;
-
-  float result = need_to_reflect ? reflection : log_y;
-
-  // return std::isinf(input) ? std::numeric_limits<T>::infinity() : result;
-  return isinf(input) ? INFINITY : result;
-}
-
-__mlu_func__ half calc_lgamma(const half &input_half) {
-  float input = __half2float(input_half);
-  static float kLanczosGamma = 7;  // aka g
-  static float kBaseLanczosCoeff = 0.99999999999980993227684700473478;
-  static const float log_lanczos_gamma_plus_one_half = 2.014903; //log(kLanczosGamma + 0.5);
-  static float kLanczosCoefficients[8] = {
-  676.520368121885098567009190444019, -1259.13921672240287047156078755283,
-  771.3234287776530788486528258894,   -176.61502916214059906584551354,
-  12.507343278686904814458936853,     -0.13857109526572011689554707,
-  9.984369578019570859563e-6,         1.50563273514931155834e-7};
-
-  static float log_pi = 1.144730; // log(M_PI);
-  static float log_sqrt_two_pi = 0.918939; // (log(2) + log(M_PI)) / 2;
-
-  /** If the input is less than 0.5 use Euler's reflection formula:
-   * gamma(x) = pi / (sin(pi * x) * gamma(1 - x))
-   */
-  bool need_to_reflect = (input < 0.5);
-  float input_after_reflect = need_to_reflect ? -input : input - 1;  // aka z
-
-  float sum = kBaseLanczosCoeff;  // aka x
-  for (int i = 0, end = 8; i < end; ++i) {
-    float lanczos_coefficient = kLanczosCoefficients[i];
-
-    sum += lanczos_coefficient / (input_after_reflect + i + 1);
-  }
-
-  float gamma_plus_onehalf_plus_z = kLanczosGamma + 0.5 + input_after_reflect;  // aka t
-
-  float log_t = log_lanczos_gamma_plus_one_half + log1pf(input_after_reflect / (kLanczosGamma + 0.5));
-
-  float log_y = log_sqrt_two_pi + (input_after_reflect + 0.5 - gamma_plus_onehalf_plus_z / log_t) * log_t + log(sum);
-
-  float abs_input = fabs(input);
-  float abs_frac_input = abs_input - floorf(abs_input);
-
-  float reduced_frac_input = (abs_frac_input > 0.5) ? 1 - abs_frac_input : abs_frac_input;
-  float reflection_denom = log(sinf(M_PI * reduced_frac_input));
-
-  // std::isfinite --> seg fault?
-  // float reflection = std::isfinite(reflection_denom) ? log_pi - reflection_denom - log_y : -reflection_denom;
-  float reflection = !(isnan(reflection_denom) || isinf(reflection_denom)) ? log_pi - reflection_denom - log_y : -reflection_denom;
-
-  float result = need_to_reflect ? reflection : log_y;
-
-  // return std::isinf(input) ? std::numeric_limits<T>::infinity() : result;
-  return isinf(input) ? INFINITY : __float2half(result);
 }
