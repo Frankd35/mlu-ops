@@ -3,6 +3,39 @@ Update History
 
 This section lists contents that were made for each product release.
 
+* V1.1.1
+
+  **Date:** April 12, 2024
+
+  **Changes:**
+
+  - None.
+
+
+* V1.1.0
+
+  **Date:** March 28, 2024
+
+  **Changes:**
+
+  - Added the following new operations:
+
+    - ``adam_w``
+
+      - mluOpAdamW
+      - mluOpCreateAdamWDescriptor
+      - mluOpSetAdamWDescAttr
+      - mluOpDestroyAdamWDescriptor
+
+    - ``exec_fft``
+
+      - mluOpExecFFT
+      - mluOpCreateFFTPlan
+      - mluOpDestroyFFTPlan
+      - mluOpSetFFTReserveArea
+      - mluOpMakeFFTPlanMany
+
+
 * V1.0.0
 
   **Date:** February 6, 2024
@@ -325,7 +358,7 @@ This section lists contents that were made for each product release.
   - Added the following new operations:
 
     - three_interpolate_forward
-    - ball_qeury
+    - ball_query
 
 * V0.2.0
 

@@ -122,7 +122,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetMaskedCol2imForwardWorkspaceSize(
   col_MC_dims[0] = col_desc->dims[1];
   col_MC_dims[1] = col_desc->dims[0];
   mluOpTensorDescriptor_t col_MC_desc_tmp;
-  MLUOP_CHECK(mluOpCreateTensorDescriptor(&col_MC_desc_tmp));
+  CHECK_RETURN("[mluOpGetMaskedCol2imForwardWorkspaceSize]",
+               mluOpCreateTensorDescriptor(&col_MC_desc_tmp));
 
   PARAM_CHECK(
       "[mluOpMaskedCol2imForward]",
@@ -148,11 +149,11 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetMaskedCol2imForwardWorkspaceSize(
   }
   size_t im_transpose_workspace_size = 0;
   mluOpTensorDescriptor_t im_NHWC_desc_tmp;
-  MLUOP_CHECK(mluOpCreateTensorDescriptor(&im_NHWC_desc_tmp));
+  CHECK_RETURN("[mluOpGetMaskedCol2imForwardWorkspaceSize]",
+               mluOpCreateTensorDescriptor(&im_NHWC_desc_tmp));
 
-  PARAM_CHECK(
+  CHECK_RETURN(
       "[mluOpMaskedCol2imForward]",
-      MLUOP_STATUS_SUCCESS ==
           mluOpSetTensorDescriptor(im_NHWC_desc_tmp, MLUOP_LAYOUT_ARRAY,
                                    im_desc->dtype, im_dim, im_NHWC_dims));
   CALL_CNNL(cnnlSetTransposeDescriptor(trans_desc, im_dim, im_permute));
@@ -167,13 +168,13 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetMaskedCol2imForwardWorkspaceSize(
   *workspace_size += im_transpose_workspace_size > col_transpose_workspace_size
                          ? im_transpose_workspace_size
                          : col_transpose_workspace_size;
-  PARAM_CHECK(
+  CHECK_RETURN(
       "[mluOpMaskedCol2imForward]",
-      MLUOP_STATUS_SUCCESS == mluOpDestroyTensorDescriptor(im_NHWC_desc_tmp));
+      mluOpDestroyTensorDescriptor(im_NHWC_desc_tmp));
   CALL_CNNL(cnnlDestroyTransposeDescriptor(trans_desc));
-  PARAM_CHECK(
+  CHECK_RETURN(
       "[mluOpMaskedCol2imForward]",
-      MLUOP_STATUS_SUCCESS == mluOpDestroyTensorDescriptor(col_MC_desc_tmp));
+      mluOpDestroyTensorDescriptor(col_MC_desc_tmp));
   return MLUOP_STATUS_SUCCESS;
 }
 
@@ -247,9 +248,11 @@ mluOpStatus_t MLUOP_WIN_API mluOpMaskedCol2imForward(
   PARAM_CHECK("[mluOpMaskedCol2imForward]", mask_w_idx != NULL);
   PARAM_CHECK("[mluOpMaskedCol2imForward]", im != NULL);
 
+  const int height = im_desc->dims[2];
+  const int width = im_desc->dims[3];
   // generate mluOpMaskedCol2imForward prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("masked_col2im_forward");
+    GEN_CASE_START("masked_col2im_forward", "MASKED_COL2IM_FORWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "col", col, col_desc, -10, 10);
     GEN_CASE_DATA_REAL(true, "mask_h_idx", mask_h_idx, mask_h_idx_desc);
@@ -276,10 +279,10 @@ mluOpStatus_t MLUOP_WIN_API mluOpMaskedCol2imForward(
     im_NHWC_dims[i] = im_desc->dims[NCHW2NHWC_permute[i]];
   }
   mluOpTensorDescriptor_t im_NHWC_desc_tmp;
-  MLUOP_CHECK(mluOpCreateTensorDescriptor(&im_NHWC_desc_tmp));
-  PARAM_CHECK(
+  CHECK_RETURN("[mluOpMaskedCol2imForward]",
+               mluOpCreateTensorDescriptor(&im_NHWC_desc_tmp));
+  CHECK_RETURN(
       "[mluOpMaskedCol2imForward]",
-      MLUOP_STATUS_SUCCESS ==
           mluOpSetTensorDescriptor(im_NHWC_desc_tmp, MLUOP_LAYOUT_ARRAY,
                                    im_desc->dtype, im_dim, im_NHWC_dims));
   uint64_t fill_value = 0x0;
@@ -302,25 +305,22 @@ mluOpStatus_t MLUOP_WIN_API mluOpMaskedCol2imForward(
   col_MC_dims[0] = col_desc->dims[1];
   col_MC_dims[1] = col_desc->dims[0];
   mluOpTensorDescriptor_t col_MC_desc_tmp;
-  MLUOP_CHECK(mluOpCreateTensorDescriptor(&col_MC_desc_tmp));
-  PARAM_CHECK(
+  CHECK_RETURN("[mluOpMaskedCol2imForward]",
+               mluOpCreateTensorDescriptor(&col_MC_desc_tmp));
+  CHECK_RETURN(
       "[mluOpMaskedCol2imForward]",
-      MLUOP_STATUS_SUCCESS ==
           mluOpSetTensorDescriptor(col_MC_desc_tmp, MLUOP_LAYOUT_ARRAY,
                                    col_desc->dtype, col_dim, col_MC_dims));
-  PARAM_CHECK(
+  CHECK_RETURN(
       "[mluOpMaskedCol2imForward]",
-      MLUOP_STATUS_SUCCESS ==
           transposeTensor(handle, col_desc, col, col_permute, col_MC_desc_tmp,
                           col_workspace, transpose_workspace));
-  PARAM_CHECK(
+  CHECK_RETURN(
       "[mluOpMaskedCol2imForward]",
-      MLUOP_STATUS_SUCCESS == mluOpDestroyTensorDescriptor(col_MC_desc_tmp));
+      mluOpDestroyTensorDescriptor(col_MC_desc_tmp));
   VLOG(5) << "[mluOpMaskedCol2imForward] cnnlTranspose_v2 col end.";
 
   const int channels = im_desc->dims[1];
-  const int height = im_desc->dims[2];
-  const int width = im_desc->dims[3];
   VLOG(5) << "Launch kernel MLUUnion1MaskedCol2imForward<<<" << k_dim.x << ", "
           << k_dim.y << ", " << k_dim.z << ">>>.";
   CHECK_RETURN("[mluOpMaskedCol2imForward]",
@@ -332,14 +332,14 @@ mluOpStatus_t MLUOP_WIN_API mluOpMaskedCol2imForward(
 
   VLOG(5) << "[mluOpMaskedCol2imForward] cnnlTranspose_v2 im start.";
   int im_permute[4] = {0, 3, 1, 2};
-  PARAM_CHECK(
+  CHECK_RETURN(
       "[mluOpMaskedCol2imForward]",
-      MLUOP_STATUS_SUCCESS == transposeTensor(handle, im_NHWC_desc_tmp,
-                                              im_workspace, im_permute, im_desc,
-                                              im, transpose_workspace));
-  PARAM_CHECK(
+      transposeTensor(handle, im_NHWC_desc_tmp,
+                      im_workspace, im_permute, im_desc,
+                      im, transpose_workspace));
+  CHECK_RETURN(
       "[mluOpMaskedCol2imForward]",
-      MLUOP_STATUS_SUCCESS == mluOpDestroyTensorDescriptor(im_NHWC_desc_tmp));
+      mluOpDestroyTensorDescriptor(im_NHWC_desc_tmp));
   VLOG(5) << "[mluOpMaskedCol2imForward] cnnlTranspose_v2 im end.";
   GEN_CASE_END();
   return MLUOP_STATUS_SUCCESS;

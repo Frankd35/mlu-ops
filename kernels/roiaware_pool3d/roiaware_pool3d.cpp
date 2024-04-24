@@ -329,7 +329,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAwarePool3dForward(
 
   // generate mluOpRoiAwarePool3dForward prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("roiaware_pool3d_forward");
+    GEN_CASE_START("roiaware_pool3d_forward", "ROIAWARE_POOL3D_FORWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA_REAL(true, "rois", rois, rois_desc);
     GEN_CASE_DATA_REAL(true, "pts", pts, pts_desc);
@@ -373,8 +373,10 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAwarePool3dForward(
     pts_tmp_dims[i] = pts_desc->dims[pts_permute[i]];
   }
   mluOpTensorDescriptor_t pts_desc_tmp = NULL;
-  MLUOP_CHECK(mluOpCreateTensorDescriptor(&pts_desc_tmp));
-  MLUOP_CHECK(mluOpSetTensorDescriptor(pts_desc_tmp, MLUOP_LAYOUT_ARRAY,
+  CHECK_RETURN("[mluOpRoiAwarePool3dForward]",
+               mluOpCreateTensorDescriptor(&pts_desc_tmp));
+  CHECK_RETURN("[mluOpRoiAwarePool3dForward]",
+               mluOpSetTensorDescriptor(pts_desc_tmp, MLUOP_LAYOUT_ARRAY,
                                        data_dtype, pts_dim, pts_tmp_dims));
 
   auto ret = transposeTensor(handle, pts_desc, pts, pts_permute, pts_desc_tmp,
@@ -383,7 +385,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAwarePool3dForward(
     return ret;
   }
 
-  MLUOP_CHECK(mluOpDestroyTensorDescriptor(pts_desc_tmp));
+  CHECK_RETURN("[mluOpRoiAwarePool3dForward]",
+               mluOpDestroyTensorDescriptor(pts_desc_tmp));
   VLOG(5) << "[mluOpRoiAwarePool3dForward] cnnlTranspose pts end.";
 
   VLOG(5) << "[mluOpRoiAwarePool3dForward] cnnlTranspose pts_feature start.";
@@ -394,9 +397,11 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAwarePool3dForward(
     pts_feature_tmp_dims[i] = pts_feature_desc->dims[pts_feature_permute[i]];
   }
   mluOpTensorDescriptor_t pts_feature_desc_tmp = NULL;
-  MLUOP_CHECK(mluOpCreateTensorDescriptor(&pts_feature_desc_tmp));
-  MLUOP_CHECK(mluOpSetTensorDescriptor(pts_feature_desc_tmp, MLUOP_LAYOUT_ARRAY,
-                                       data_dtype, pts_feature_dim,
+  CHECK_RETURN("[mluOpRoiAwarePool3dForward]",
+               mluOpCreateTensorDescriptor(&pts_feature_desc_tmp));
+  CHECK_RETURN("[mluOpRoiAwarePool3dForward]",
+               mluOpSetTensorDescriptor(pts_feature_desc_tmp,
+                  MLUOP_LAYOUT_ARRAY, data_dtype, pts_feature_dim,
                                        pts_feature_tmp_dims));
 
   ret = transposeTensor(handle, pts_feature_desc, pts_feature,
@@ -406,7 +411,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAwarePool3dForward(
     return ret;
   }
 
-  MLUOP_CHECK(mluOpDestroyTensorDescriptor(pts_feature_desc_tmp));
+  CHECK_RETURN("[mluOpRoiAwarePool3dForward]",
+               mluOpDestroyTensorDescriptor(pts_feature_desc_tmp));
   VLOG(5) << "[mluOpRoiAwarePool3dForward] cnnlTranspose pts_feature end.";
 
   VLOG(5) << "[mluOpRoiAwarePool3dForward] cnnlFill_v3 host pointer start.";
@@ -625,7 +631,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiAwarePool3dBackward(
 
   // generate mluOpRoiAwarePool3dBackward prototxt start!
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("roiaware_pool3d_backward");
+    GEN_CASE_START("roiaware_pool3d_backward", "ROIAWARE_POOL3D_BACKWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA_REAL(true, "pts_idx_of_voxels", pts_idx_of_voxels,
                        pts_idx_of_voxels_desc);
@@ -699,8 +705,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetRoiawarePool3dForwardWorkspaceSize(
       << "will be removed in the future release, "
       << "please use [mluOpGetRoiAwarePool3dForwardWorkspaceSize] instead.";
   return mluOpGetRoiAwarePool3dForwardWorkspaceSize(
-              handle, rois_desc, pts_desc, pts_feature_desc,
-              workspace_size);
+      handle, rois_desc, pts_desc, pts_feature_desc, workspace_size);
 }
 
 mluOpStatus_t MLUOP_WIN_API mluOpRoiawarePool3dForward(
@@ -720,11 +725,11 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiawarePool3dForward(
       << "the future release, "
       << "please use [mluOpRoiAwarePool3dForward] instead.";
   return mluOpRoiAwarePool3dForward(
-              handle, pool_method, boxes_num, pts_num, channels, rois_desc,
-              rois, pts_desc, pts, pts_feature_desc, pts_feature, workspace,
-              workspace_size, max_pts_each_voxel, out_x, out_y, out_z,
-              argmax_desc, argmax, pts_idx_of_voxels_desc,
-              pts_idx_of_voxels, pooled_features_desc, pooled_features);
+      handle, pool_method, boxes_num, pts_num, channels, rois_desc, rois,
+      pts_desc, pts, pts_feature_desc, pts_feature, workspace, workspace_size,
+      max_pts_each_voxel, out_x, out_y, out_z, argmax_desc, argmax,
+      pts_idx_of_voxels_desc, pts_idx_of_voxels, pooled_features_desc,
+      pooled_features);
 }
 
 mluOpStatus_t MLUOP_WIN_API mluOpRoiawarePool3dBackward(
@@ -741,8 +746,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpRoiawarePool3dBackward(
       << "the future release, "
       << "please use [mluOpRoiAwarePool3dBackward] instead.";
   return mluOpRoiAwarePool3dBackward(
-              handle, pool_method, boxes_num, out_x, out_y, out_z,
-              channels, max_pts_each_voxel, pts_idx_of_voxels_desc,
-              pts_idx_of_voxels, argmax_desc, argmax, grad_out_desc,
-              grad_out, grad_in_desc, grad_in);
+      handle, pool_method, boxes_num, out_x, out_y, out_z, channels,
+      max_pts_each_voxel, pts_idx_of_voxels_desc, pts_idx_of_voxels,
+      argmax_desc, argmax, grad_out_desc, grad_out, grad_in_desc, grad_in);
 }

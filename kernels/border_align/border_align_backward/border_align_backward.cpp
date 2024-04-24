@@ -79,30 +79,39 @@ mluOpStatus_t mluOpBorderAlignBackward(
   PARAM_CHECK(API, argmax_idx_desc->layout == MLUOP_LAYOUT_NHWC);
   PARAM_CHECK(API, grad_input_desc->layout == MLUOP_LAYOUT_NHWC);
 
-  PARAM_CHECK(API, grad_input_desc->dims[3] % border_num == 0);
-  PARAM_CHECK_NE(API, origin_n, 0);
-  PARAM_CHECK_NE(API, origin_c, 0);
-  PARAM_CHECK_NE(API, origin_h, 0);
-  PARAM_CHECK_NE(API, origin_w, 0);
-  PARAM_CHECK(API, origin_h * origin_w == origin_k);
+  PARAM_CHECK(API, grad_input_desc->dims[3] % 4 == 0,
+              "(4 represents the number of borders).");
+  PARAM_CHECK_NE(API, grad_input_desc->dims[0], 0);
+  PARAM_CHECK_NE(API, grad_input_desc->dims[3] / 4, 0,
+              "(4 represents the number of borders).");
+  PARAM_CHECK_NE(API, grad_input_desc->dims[1], 0);
+  PARAM_CHECK_NE(API, grad_input_desc->dims[2], 0);
+  PARAM_CHECK(API, grad_input_desc->dims[1] * grad_input_desc->dims[2]
+                    == boxes_desc->dims[1]);
   PARAM_CHECK(API, boxes_desc->dim == 3);
-  PARAM_CHECK(API, boxes_desc->dims[2] == coord_num);
-  PARAM_CHECK_NE(API, origin_k, 0);
+  PARAM_CHECK(API, boxes_desc->dims[2] == border_num,
+              "(border_num = 4).");
+  PARAM_CHECK_NE(API, boxes_desc->dims[1], 0);
   PARAM_CHECK_GT(API, pool_size, 0);
 
-  PARAM_CHECK_EQ(API, grad_output_desc->dims[0], origin_n);
-  PARAM_CHECK_EQ(API, grad_output_desc->dims[1], origin_k);
-  PARAM_CHECK_EQ(API, grad_output_desc->dims[2], border_num);
-  PARAM_CHECK_EQ(API, grad_output_desc->dims[3], origin_c);
+  PARAM_CHECK_EQ(API, grad_output_desc->dims[0], grad_input_desc->dims[0]);
+  PARAM_CHECK_EQ(API, grad_output_desc->dims[1], boxes_desc->dims[1]);
+  PARAM_CHECK_EQ(API, grad_output_desc->dims[2], border_num,
+                 "(border_num = 4).");
+  PARAM_CHECK_EQ(API, grad_output_desc->dims[3], grad_input_desc->dims[3] / 4,
+                 "(4 represents the number of borders).");
 
-  PARAM_CHECK_EQ(API, boxes_desc->dims[0], origin_n);
-  PARAM_CHECK_EQ(API, boxes_desc->dims[1], origin_k);
-  PARAM_CHECK_EQ(API, boxes_desc->dims[2], coord_num);
+  PARAM_CHECK_EQ(API, boxes_desc->dims[0], grad_input_desc->dims[0]);
+  PARAM_CHECK_EQ(API, boxes_desc->dims[1], boxes_desc->dims[1]);
+  PARAM_CHECK_EQ(API, boxes_desc->dims[2], border_num,
+                 "(border_num = 4).");
 
-  PARAM_CHECK_EQ(API, argmax_idx_desc->dims[0], origin_n);
-  PARAM_CHECK_EQ(API, argmax_idx_desc->dims[1], origin_k);
-  PARAM_CHECK_EQ(API, argmax_idx_desc->dims[2], border_num);
-  PARAM_CHECK_EQ(API, argmax_idx_desc->dims[3], origin_c);
+  PARAM_CHECK_EQ(API, argmax_idx_desc->dims[0], grad_input_desc->dims[0]);
+  PARAM_CHECK_EQ(API, argmax_idx_desc->dims[1], boxes_desc->dims[1]);
+  PARAM_CHECK_EQ(API, argmax_idx_desc->dims[2], border_num,
+                 "(border_num = 4).");
+  PARAM_CHECK_EQ(API, argmax_idx_desc->dims[3], grad_input_desc->dims[3] / 4,
+                 "(4 represents the number of borders).");
 
   TENSOR_NUM_CHECK(API, mluOpGetTensorElementNum(grad_output_desc),
                    LARGE_TENSOR_NUM, "");
@@ -118,13 +127,13 @@ mluOpStatus_t mluOpBorderAlignBackward(
 
   // generate case prototxt
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("border_align_backward");
+    GEN_CASE_START("border_align_backward", "BORDER_ALIGN_BACKWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "input1", grad_output, grad_output_desc, 100, 0);
     GEN_CASE_DATA_REAL(true, "input2", boxes, boxes_desc);
     GEN_CASE_DATA_REAL(true, "input3", argmax_idx, argmax_idx_desc);
     GEN_CASE_DATA(false, "output1", grad_input, grad_input_desc, 0, 0);
-    GEN_CASE_OP_PARAM_SINGLE(0, "border_align_backward", "pool_size",
+    GEN_CASE_OP_PARAM_SINGLE(0, "border_align", "pool_size",
                              pool_size);
     GEN_CASE_TEST_PARAM_NEW(true, true, false, 0.003, 0.003, 0);
   }

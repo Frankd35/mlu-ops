@@ -229,7 +229,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpDynamicPointToVoxelBackward(
 
   // generator
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("dynamic_point_to_voxel_backward");
+    GEN_CASE_START("dynamic_point_to_voxel_backward",
+                   "DYNAMIC_POINT_TO_VOXEL_BACKWARD");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA_REAL(true, "grad_voxel_feats", grad_voxel_feats,
                        grad_voxel_feats_desc);
@@ -272,12 +273,10 @@ mluOpStatus_t MLUOP_WIN_API mluOpDynamicPointToVoxelBackward(
   if (grad_voxel_feats_element_num != 0) {
     // 2. init workspace
     mluOpTensorDescriptor_t indices_desc;
-    INTERNAL_CHECK(
-        interface_name,
-        MLUOP_STATUS_SUCCESS == mluOpCreateTensorDescriptor(&indices_desc));
+    CHECK_RETURN(
+        interface_name, mluOpCreateTensorDescriptor(&indices_desc));
     int indices_dims[2] = {(int)grad_voxel_feats_element_num, 1};
-    INTERNAL_CHECK(interface_name, MLUOP_STATUS_SUCCESS ==
-                                       mluOpSetTensorDescriptor(
+    CHECK_RETURN(interface_name, mluOpSetTensorDescriptor(
                                            indices_desc, MLUOP_LAYOUT_ARRAY,
                                            MLUOP_DTYPE_INT32, 2, indices_dims));
     {
@@ -298,21 +297,17 @@ mluOpStatus_t MLUOP_WIN_API mluOpDynamicPointToVoxelBackward(
     // 4. scatter
     cnnlScatterNdMode_t scatter_mode = CNNL_SCATTERND_ADD;
     mluOpTensorDescriptor_t updates_desc;
-    INTERNAL_CHECK(
-        interface_name,
-        MLUOP_STATUS_SUCCESS == mluOpCreateTensorDescriptor(&updates_desc));
+    CHECK_RETURN(
+        interface_name, mluOpCreateTensorDescriptor(&updates_desc));
     int updates_dims[1] = {(int)grad_voxel_feats_element_num};
-    INTERNAL_CHECK(interface_name, MLUOP_STATUS_SUCCESS ==
-                                       mluOpSetTensorDescriptor(
+    CHECK_RETURN(interface_name, mluOpSetTensorDescriptor(
                                            updates_desc, MLUOP_LAYOUT_ARRAY,
                                            MLUOP_DTYPE_FLOAT, 1, updates_dims));
     mluOpTensorDescriptor_t output_desc;
-    INTERNAL_CHECK(
-        interface_name,
-        MLUOP_STATUS_SUCCESS == mluOpCreateTensorDescriptor(&output_desc));
+    CHECK_RETURN(
+        interface_name, mluOpCreateTensorDescriptor(&output_desc));
     int output_dims[1] = {(int)grad_feats_element_num};
-    INTERNAL_CHECK(interface_name, MLUOP_STATUS_SUCCESS ==
-                                       mluOpSetTensorDescriptor(
+    CHECK_RETURN(interface_name, mluOpSetTensorDescriptor(
                                            output_desc, MLUOP_LAYOUT_ARRAY,
                                            MLUOP_DTYPE_FLOAT, 1, output_dims));
     {
@@ -332,15 +327,12 @@ mluOpStatus_t MLUOP_WIN_API mluOpDynamicPointToVoxelBackward(
       DESTROY_CNNL_TENSOR_DESCRIPTOR(cnnl_output_desc);
       DESTROY_CNNL_HANDLE(cnnl_handle);
     }
-    INTERNAL_CHECK(
-        interface_name,
-        MLUOP_STATUS_SUCCESS == mluOpDestroyTensorDescriptor(updates_desc));
-    INTERNAL_CHECK(
-        interface_name,
-        MLUOP_STATUS_SUCCESS == mluOpDestroyTensorDescriptor(output_desc));
-    INTERNAL_CHECK(
-        interface_name,
-        MLUOP_STATUS_SUCCESS == mluOpDestroyTensorDescriptor(indices_desc));
+    CHECK_RETURN(
+        interface_name, mluOpDestroyTensorDescriptor(updates_desc));
+    CHECK_RETURN(
+        interface_name, mluOpDestroyTensorDescriptor(output_desc));
+    CHECK_RETURN(
+        interface_name, mluOpDestroyTensorDescriptor(indices_desc));
   }
   GEN_CASE_END();
   return MLUOP_STATUS_SUCCESS;

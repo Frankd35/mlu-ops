@@ -333,23 +333,20 @@ mluOpStatus_t MLUOP_WIN_API mluOpMakeFFTPlanMany(
   // create input and output descriptor for gen_case
   // because mluOpExecFFT don't have input and output descriptor
   mluOpTensorDescriptor_t fft_input_desc, fft_output_desc;
-  INTERNAL_CHECK(make_plan_api, mluOpCreateTensorDescriptor(&fft_input_desc) ==
-                                    MLUOP_STATUS_SUCCESS);
-  INTERNAL_CHECK(make_plan_api, mluOpCreateTensorDescriptor(&fft_output_desc) ==
-                                    MLUOP_STATUS_SUCCESS);
-  INTERNAL_CHECK(make_plan_api,
+  CHECK_RETURN(make_plan_api, mluOpCreateTensorDescriptor(&fft_input_desc));
+  CHECK_RETURN(make_plan_api, mluOpCreateTensorDescriptor(&fft_output_desc));
+  CHECK_RETURN(make_plan_api,
                  mluOpSetTensorDescriptorEx_v2(
                      fft_input_desc, input_desc->layout, input_desc->dtype,
                      input_desc->dim, input_desc->dims,
-                     input_desc->strides) == MLUOP_STATUS_SUCCESS);
-  INTERNAL_CHECK(make_plan_api, mluOpSetTensorDescriptorOnchipDataType(
-                                    fft_input_desc, input_desc->onchip_dtype) ==
-                                    MLUOP_STATUS_SUCCESS);
-  INTERNAL_CHECK(make_plan_api,
+                     input_desc->strides));
+  CHECK_RETURN(make_plan_api, mluOpSetTensorDescriptorOnchipDataType(
+                                    fft_input_desc, input_desc->onchip_dtype));
+  CHECK_RETURN(make_plan_api,
                  mluOpSetTensorDescriptorEx_v2(
                      fft_output_desc, output_desc->layout, output_desc->dtype,
                      output_desc->dim, output_desc->dims,
-                     output_desc->strides) == MLUOP_STATUS_SUCCESS);
+                     output_desc->strides));
   fft_plan->input_desc = fft_input_desc;
   fft_plan->output_desc = fft_output_desc;
 
@@ -395,14 +392,12 @@ mluOpStatus_t MLUOP_WIN_API mluOpDestroyFFTPlan(mluOpFFTPlan_t fft_plan) {
   const std::string destroy_api = "[mluOpDestroyFFTPlan]";
   PARAM_CHECK_NE("[mluOpDestroyFFTPlan]", fft_plan, NULL);
   if (fft_plan->input_desc != NULL) {
-    INTERNAL_CHECK(destroy_api,
-                   mluOpDestroyTensorDescriptor(fft_plan->input_desc) ==
-                       MLUOP_STATUS_SUCCESS);
+    CHECK_RETURN(destroy_api,
+                   mluOpDestroyTensorDescriptor(fft_plan->input_desc));
   }
   if (fft_plan->output_desc != NULL) {
-    INTERNAL_CHECK(destroy_api,
-                   mluOpDestroyTensorDescriptor(fft_plan->output_desc) ==
-                       MLUOP_STATUS_SUCCESS);
+    CHECK_RETURN(destroy_api,
+                   mluOpDestroyTensorDescriptor(fft_plan->output_desc));
   }
   delete fft_plan;
   return MLUOP_STATUS_SUCCESS;
@@ -474,7 +469,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpExecFFT(
   }
 
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("fft");
+    GEN_CASE_START("fft", "FFT");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "input", input, fft_plan->input_desc, 1, 0);
     GEN_CASE_DATA(false, "output", output, fft_plan->output_desc, 0, 0);

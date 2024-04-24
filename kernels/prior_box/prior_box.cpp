@@ -102,7 +102,8 @@ mluOpStatus_t mluOpPriorBoxParamCheck(
   // check param depand
 
   for (int i = 0; i < output_desc->dim; i++) {
-    PARAM_CHECK(api, output_desc->dims[i] == var_desc->dims[i]);
+    std::string i_str = "i: " + std::to_string(i);
+    PARAM_CHECK(api, output_desc->dims[i] == var_desc->dims[i], i_str);
   }
   if (max_sizes_desc->total_element_num != 0) {
     PARAM_CHECK(api, max_sizes_desc->dims[0] == min_sizes_desc->dims[0]);
@@ -192,7 +193,7 @@ mluOpStatus_t mluOpPriorBox(
                              : min_sizes_num * aspect_ratios_num;
 
   if (MLUOP_GEN_CASE_ON_NEW) {
-    GEN_CASE_START("prior_box");
+    GEN_CASE_START("prior_box", "PRIOR_BOX");
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA_REAL(true, "input1", min_sizes, min_sizes_desc);
     GEN_CASE_DATA_REAL(true, "input2", aspect_ratios, aspect_ratios_desc);
