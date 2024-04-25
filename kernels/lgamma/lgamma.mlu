@@ -223,9 +223,9 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     // using fs2 -> reflection_denom
     __bang_mul_scalar(fs2, fa5, M_PI, num_deal);
     // __bang_printf("ckpt5 mul = %lf\n", *(fs2));
-    __bang_sin(fs2, fs2, num_deal);               // active sin ?
+    __bang_active_sin(fs2, fs2, num_deal);               // active sin ?
     // __bang_printf("ckpt5 sin = %lf\n", *(fs2));
-    __bang_log(fs2, fs2, num_deal);               // active log ?
+    __bang_active_log(fs2, fs2, num_deal);               // active log ?
     // __bang_printf("ckpt5 reflection_denom = %lf\n", *(fs2));
     // __bang_printf("ckpt5 reflection_denom = %0x\n", *(fs2));
     
