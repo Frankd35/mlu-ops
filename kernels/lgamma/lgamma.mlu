@@ -84,9 +84,15 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
   static const float log_lanczos_gamma_plus_one_half = 2.014903;
 
   int core_n = total / taskDim;   // size of vector that each core computing 
-  x += core_n*taskId;
-  y += core_n*taskId;
-  core_n = taskId != taskDim - 1 ? core_n : total - taskId*core_n;
+  int rem_n = total % taskDim;    
+  if (taskId <= rem_n) {
+    core_n += 1;
+    x += core_n*taskId;
+    y += core_n*taskId;
+  } else {
+    x += (core_n + 1) * rem_n + core_n * (taskId - rem_n);
+    y += (core_n + 1) * rem_n + core_n * (taskId - rem_n);
+  }
 
   float* aux_array[AUX_N];
   int arr_size = FLOOR_ALIGN(LGAMMA_NRAM_USED / sizeof(float) / AUX_N, UNARY_ALIGN_NUM);
