@@ -44,11 +44,10 @@ __mlu_func__ void computeLgammaFast(T *nram_x, T *nram_x_half, T *nram_aux_a,
 // // if loc has nan/inf, fill all invalid potision with 0. Note that this operation handles in bit-scale.
 // #define __check_infinte(valid_mask, deal_num) 
 
-// const int nan_half_value = 0xffff;
-// const int inf_half_value = 0xfc00;
-const int nan_float_value = 0x7fc00000;
-const int nan_float_mask = nan_float_value & 0x0fffffff;
 const int inf_float_value = 0x7f800000;
+const int nan_float_mask = inf_float_value | 0x7fffff;
+const float log_e_2 = 0.69314718055994530941723212145818; // ln(x) = log(x) * log_e_2
+// const int float_bit_mask = 0xffffffff;
 
 #define AUX_N 5
 #define fs0 aux_array[0]
@@ -60,20 +59,24 @@ const int inf_float_value = 0x7f800000;
 
 // macro for vector multiplexer 2 to 1, sel is 0/1 vector
 // dst = a*sel + !sel*b
-// TODO: opt the mul, see logic functions
 // a can overlap with dst
-#define __bang_mux2(dst, a, b, sel, sz) __bang_mul(dst, a, sel, sz); \
-                                        __bang_eq_scalar(sel, sel, 0, sz); \
-                                        __bang_mul(sel, b, sel, sz); \
+// float 1: [0 01111111 00000000000000000000000] >> 29 -> int 1
+/*__bang_printf("__bang_mux2 src1: %f, src2: %f, sel: %x\nS", *a, *b, *sel); \ */
+#define __bang_mux2(dst, a, b, sel, sz) __bang_srl((unsigned int*)sel, (unsigned int*)sel, 29, sz); \
+                                        __bang_mul_scalar((int*)sel, (int*)sel, -1, sz); \
+                                        __bang_band((char*)dst, (char*)a,   (char*)sel, sz*sizeof(float)); \
+                                        __bang_bnot((char*)sel, (char*)sel, sz*sizeof(float)); \
+                                        __bang_band((char*)sel, (char*)b,   (char*)sel, sz*sizeof(float)); \
                                         __bang_add(dst, dst, sel, sz)
 
-#define __bang_isinfinite(dst, src, sz) __bang_band_scalar(dst, src, inf_float_value, sz); \
-                                        __bang_eq_scalar(dst, dst, inf_float_value, sz)
+#define __bang_isfinite(dst, src, sz) __bang_band_scalar(dst, src, (float)inf_float_value, sz); \
+                                      __bang_ne_scalar(dst, dst, (float)inf_float_value, sz)
 
-#define __bang_isinf(dst, src, sz) __bang_band_scalar(dst, src, nan_float_mask, sz); \
-                                   __bang_eq_scalar(dst, dst, inf_float_value, sz)
+#define __bang_isinf(dst, src, sz) __bang_band_scalar(dst, src, (float)nan_float_mask, sz); \
+                                   __bang_eq_scalar(dst, dst, (float)inf_float_value, sz)
 
-
+#define __bang_loghp(dst, src, sz) __bang_log(dst, src, sz); \
+                                   __bang_mul_scalar(dst, dst, log_e_2, sz);
 
 template <typename T>
 __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
@@ -172,7 +175,7 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     __bang_add_scalar(fs4, fs0, 8, num_deal);
     __mluop_div(fs4, fa5, fs4, (float *)0, 0, num_deal);    // __bang_div(fs4, fa5, fs4, num_deal);
     __bang_add(fs2, fs2, fs4, num_deal);
-    // __bang_printf("ckpt3, %lf\n", *(fs2));
+    // __bang_printf("ckpt3, sum = %lf\n", *(fs2));
 
     /**
      * float gamma_plus_onehalf_plus_z = kLanczosGamma + 0.5 + input_after_reflect;  // aka t
@@ -187,9 +190,9 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     __bang_write_value(fa5, num_deal, (float)(kLanczosGamma+0.5));
     __mluop_div(fa5, fs0, fa5, (float *)0, 0, num_deal);
     __bang_add_scalar(fa5, fa5, 1, num_deal);
-    __bang_active_log(fa5, fa5, num_deal);
+    __bang_loghp(fa5, fa5, num_deal);
     __bang_add_scalar(fa5, fa5, log_lanczos_gamma_plus_one_half, num_deal);
-    // __bang_printf("ckpt4, %lf\n", *(fa5));
+    // __bang_printf("ckpt4, log_t = %lf\n", *(fa5));
 
     /**
      * float log_y = log_sqrt_two_pi + (input_after_reflect + 0.5 - gamma_plus_onehalf_plus_z / log_t) * log_t + log(sum);
@@ -197,7 +200,8 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
      *        log_y = log_sqrt_two_pi + (input_after_reflect + 0.5) * log_t - gamma_plus_onehalf_plus_z + log(sum)
     */
     // using fs0 -> log_y
-    __bang_active_log(fs2, fs2, num_deal);
+    __bang_loghp(fs2, fs2, num_deal);
+    // __bang_printf("ckpt5, log(sum) = %lf\n", *(fs2));
     __bang_add_scalar(fs0, fs0, 0.5, num_deal);
     __bang_mul(fs0, fs0, fa5, num_deal);
     __bang_add_scalar(fs0, fs0, log_sqrt_two_pi, num_deal);
@@ -217,21 +221,21 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     /**
      * float reduced_frac_input = (abs_frac_input > 0.5) ? 1 - abs_frac_input : abs_frac_input;
     */
-    // using fa5 -> reduced_frac_input
+    // using fs4 -> reduced_frac_input
     __bang_gt_scalar(fs2, fa5, 0.5, num_deal);
     __bang_mul_scalar(fs4, fa5, -1, num_deal);
     __bang_add_scalar(fs4, fs4, 1, num_deal);
-    __bang_mux2(fa5, fs4, fa5, fs2, num_deal);
+    __bang_mux2(fs4, fs4, fa5, fs2, num_deal);
 
     /**
      * float reflection_denom = log(sinf(M_PI * reduced_frac_input));
     */
     // using fs2 -> reflection_denom
-    __bang_mul_scalar(fs2, fa5, M_PI, num_deal);
-    // __bang_printf("ckpt5 mul = %lf\n", *(fs2));
-    __bang_active_sin(fs2, fs2, num_deal);               // active sin ?
+    __bang_mul_scalar(fs2, fs4, M_PI, num_deal);
+    // __bang_printf("ckpt5 M_PI * reduced_frac_input = %lf\n", *(fs2));
+    __bang_sin(fs2, fs2, num_deal);               // active sin ?
     // __bang_printf("ckpt5 sin = %lf\n", *(fs2));
-    __bang_active_log(fs2, fs2, num_deal);               // active log ?
+    __bang_loghp(fs2, fs2, num_deal);               // active log ?
     // __bang_printf("ckpt5 reflection_denom = %lf\n", *(fs2));
     // __bang_printf("ckpt5 reflection_denom = %0x\n", *(fs2));
     
@@ -242,12 +246,14 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     __bang_write_zero(fa5, num_deal);
     // __bang_printf("ckpt6  -reflection_denom = %0x\n", *(fs4));
     __bang_sub(fs2, fa5, fs2, num_deal);
-    __bang_isinfinite(fa5, fs2, num_deal);
-    // __bang_printf("ckpt6 __bang_isinfinite reflection_denom = %lf\n", *(fa5));
+    __bang_isfinite(fa5, fs2, num_deal);
+    // __bang_printf("ckpt6 __bang_isfinite reflection_denom = %lf\n", *(fa5));
     __bang_sub(fs4, fs2, fs0, num_deal);
     // __bang_printf("ckpt6  - reflection_denom - log_y = %0x\n", *(fs4));
+    // __bang_printf("ckpt6  - reflection_denom - log_y = %lf\n", *(fs4));
     __bang_add_scalar(fs4, fs4, log_pi, num_deal);
     // __bang_printf("ckpt6 log_pi - reflection_denom - log_y = %0x\n", *(fs4));
+    // __bang_printf("ckpt6 log_pi - reflection_denom - log_y = %0lf\n", *(fs4));
     __bang_mux2(fs4, fs4, fs2, fa5, num_deal);
     // __bang_printf("ckpt6, %lf\n", *(fs4));
 
@@ -257,6 +263,7 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     */
     // using fs2 -> result
     __bang_lt_scalar(fa5, fs1, 0.5, num_deal);
+    // __bang_printf("ckpt7, need_to_reflect = %lf\n", *(fa5));
     __bang_mux2(fs2, fs4, fs0, fa5, num_deal);
     // __bang_printf("ckpt7, %lf\n", *(fs2));
 
