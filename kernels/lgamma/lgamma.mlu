@@ -11,43 +11,9 @@
 
 __nram__ char nram_buffer[LGAMMA_NRAM_USED];
 
-__mlu_func__ float calc_lgamma(const float &input);
-__mlu_func__ half calc_lgamma(const half &input);
-
-template <typename T>
-__mlu_func__ void get3OffsetLgammaFast(int32_t &offset_x_half,
-                                    int32_t &offset_aux_a,
-                                    int32_t &offset_aux_b, int32_t &num_deal,
-                                    int32_t &num_pong) {
-  // ping-pong buffer
-  num_deal = FLOOR_ALIGN(LGAMMA_NRAM_USED / sizeof(T) / 2, UNARY_ALIGN_NUM);
-  // compute one buffer each time
-  num_pong = num_deal;
-  // using nram_buffer as both input/output buffer
-  offset_x_half = 0;
-  // not used
-  offset_aux_a = 0;
-  offset_aux_b = 0;
-}
-
-template <typename T>
-__mlu_func__ void computeLgammaFast(T *nram_x, T *nram_x_half, T *nram_aux_a,
-                                    T *nram_aux_b, const int32_t deal_num,
-                                    const int32_t actual_num, const float coef) {
-  for (size_t i = 0; i < actual_num; i++) {
-    nram_x[i] = calc_lgamma(nram_x_half[i]);
-  }
-}
-
-// // if loc has nan/inf, fill invalid value with 0.
-// // first we cast float32 to int32. then multiply -1, whose hex is 0xffffffff
-// // if loc has nan/inf, fill all invalid potision with 0. Note that this operation handles in bit-scale.
-// #define __check_infinte(valid_mask, deal_num) 
-
 const int inf_float_value = 0x7f800000;
 const int nan_float_mask = inf_float_value | 0x7fffff;
 const float log_e_2 = 0.69314718055994530941723212145818; // ln(x) = log(x) * log_e_2
-// const int float_bit_mask = 0xffffffff;
 
 #define AUX_N 5
 #define fs0 aux_array[0]
@@ -61,7 +27,6 @@ const float log_e_2 = 0.69314718055994530941723212145818; // ln(x) = log(x) * lo
 // dst = a*sel + !sel*b
 // a can overlap with dst
 // float 1: [0 01111111 00000000000000000000000] >> 29 -> int 1
-/*__bang_printf("__bang_mux2 src1: %f, src2: %f, sel: %x\nS", *a, *b, *sel); \ */
 #define __bang_mux2(dst, a, b, sel, sz) __bang_srl((unsigned int*)sel, (unsigned int*)sel, 29, sz); \
                                         __bang_mul_scalar((int*)sel, (int*)sel, -1, sz); \
                                         __bang_band((char*)dst, (char*)a,   (char*)sel, sz*sizeof(float)); \
@@ -105,20 +70,16 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     pos += arr_size;
   }
 
-  // __bang_printf("taskId(%d)\ttotal: %d, each core: %d, arr size: %d\n", taskId, total, core_n, arr_size);
   for (size_t i = 0; i < core_n; i += arr_size) {
     int num_deal = i + arr_size > core_n ? core_n - i : arr_size;
-    // __bang_printf("[%d]: num_deal=%d\n", i, num_deal);
 
     // using fs1 -> input
-    // __bang_printf("memcpy from (x+%d), byte: %d\n", i, num_deal*sizeof(float));
     if (sizeof(T) == sizeof(float)) {
       __memcpy(fs1, x + i, num_deal*sizeof(float), GDRAM2NRAM);  
     } else if (sizeof(T) == sizeof(half)) {  // half
       __memcpy(fs0, x + i, num_deal*sizeof(half), GDRAM2NRAM);  
       __bang_half2float(fs1, (half *)fs0, num_deal);
     }
-    // __bang_printf("ckpt0, %lf\n", *(fs1));
 
     /**
      * bool need_to_reflect = (input < 0.5); 
@@ -175,7 +136,6 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     __bang_add_scalar(fs4, fs0, 8, num_deal);
     __mluop_div(fs4, fa5, fs4, (float *)0, 0, num_deal);    // __bang_div(fs4, fa5, fs4, num_deal);
     __bang_add(fs2, fs2, fs4, num_deal);
-    // __bang_printf("ckpt3, sum = %lf\n", *(fs2));
 
     /**
      * float gamma_plus_onehalf_plus_z = kLanczosGamma + 0.5 + input_after_reflect;  // aka t
@@ -192,7 +152,6 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     __bang_add_scalar(fa5, fa5, 1, num_deal);
     __bang_loghp(fa5, fa5, num_deal);
     __bang_add_scalar(fa5, fa5, log_lanczos_gamma_plus_one_half, num_deal);
-    // __bang_printf("ckpt4, log_t = %lf\n", *(fa5));
 
     /**
      * float log_y = log_sqrt_two_pi + (input_after_reflect + 0.5 - gamma_plus_onehalf_plus_z / log_t) * log_t + log(sum);
@@ -201,13 +160,11 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     */
     // using fs0 -> log_y
     __bang_loghp(fs2, fs2, num_deal);
-    // __bang_printf("ckpt5, log(sum) = %lf\n", *(fs2));
     __bang_add_scalar(fs0, fs0, 0.5, num_deal);
     __bang_mul(fs0, fs0, fa5, num_deal);
     __bang_add_scalar(fs0, fs0, log_sqrt_two_pi, num_deal);
     __bang_sub(fs0, fs0, fs4, num_deal);
     __bang_add(fs0, fs0, fs2, num_deal);
-    // __bang_printf("ckpt5, log_y = %lf\n", *(fs0));
 
     /**
      * float abs_input = fabs(input);
@@ -232,30 +189,19 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     */
     // using fs2 -> reflection_denom
     __bang_mul_scalar(fs2, fs4, M_PI, num_deal);
-    // __bang_printf("ckpt5 M_PI * reduced_frac_input = %lf\n", *(fs2));
     __bang_sin(fs2, fs2, num_deal);               // active sin ?
-    // __bang_printf("ckpt5 sin = %lf\n", *(fs2));
     __bang_loghp(fs2, fs2, num_deal);               // active log ?
-    // __bang_printf("ckpt5 reflection_denom = %lf\n", *(fs2));
-    // __bang_printf("ckpt5 reflection_denom = %0x\n", *(fs2));
     
     /**
      * float reflection = std::isfinite(reflection_denom) ? log_pi - reflection_denom - log_y : -reflection_denom;
     */
     // using fs4 -> reflection
     __bang_write_zero(fa5, num_deal);
-    // __bang_printf("ckpt6  -reflection_denom = %0x\n", *(fs4));
     __bang_sub(fs2, fa5, fs2, num_deal);
     __bang_isfinite(fa5, fs2, num_deal);
-    // __bang_printf("ckpt6 __bang_isfinite reflection_denom = %lf\n", *(fa5));
     __bang_sub(fs4, fs2, fs0, num_deal);
-    // __bang_printf("ckpt6  - reflection_denom - log_y = %0x\n", *(fs4));
-    // __bang_printf("ckpt6  - reflection_denom - log_y = %lf\n", *(fs4));
     __bang_add_scalar(fs4, fs4, log_pi, num_deal);
-    // __bang_printf("ckpt6 log_pi - reflection_denom - log_y = %0x\n", *(fs4));
-    // __bang_printf("ckpt6 log_pi - reflection_denom - log_y = %0lf\n", *(fs4));
     __bang_mux2(fs4, fs4, fs2, fa5, num_deal);
-    // __bang_printf("ckpt6, %lf\n", *(fs4));
 
 
     /**
@@ -263,18 +209,14 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     */
     // using fs2 -> result
     __bang_lt_scalar(fa5, fs1, 0.5, num_deal);
-    // __bang_printf("ckpt7, need_to_reflect = %lf\n", *(fa5));
     __bang_mux2(fs2, fs4, fs0, fa5, num_deal);
-    // __bang_printf("ckpt7, %lf\n", *(fs2));
 
     /**
      * return isinf(input) ? INFINITY : result;
     */ 
     __bang_isinf(fa5, fs2, num_deal);
-    // __bang_printf("__bang_isinf(%lf) = %f\n", *(fs2), *(fa5));
     __bang_write_value(fs4, num_deal, (float)(inf_float_value));
     __bang_mux2(fs1, fs4, fs2, fa5, num_deal);
-    // __bang_printf("ckpt8, %lf\n", *(fs1));
 
 
     if (sizeof(T) == sizeof(float)) {
@@ -283,26 +225,20 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
       __mluop_float2half((half *)fs1, fs1, num_deal);
       __memcpy(y + i, fs1, num_deal*sizeof(half), NRAM2GDRAM);  
     }
-    // __bang_printf("end\n");
   } 
 }
 
 
 mluOpStatus_t MLUOP_WIN_API
-Kernel3StagePipelineLgamma(const cnrtDim3_t k_dim, const cnrtFunctionType_t k_type,
+KernelLgamma(const cnrtDim3_t k_dim, const cnrtFunctionType_t k_type,
                         const cnrtQueue_t queue, const mluOpDataType_t d_type,
                         const void *x, void *y, const int32_t num) {
   if (d_type == MLUOP_DTYPE_FLOAT) {
     KERNEL_CHECK(
-        // MLUBlockKernel3StagePipelineLgammafloatFast<<<k_dim, k_type, queue>>>(
-        //     (void *)x, (void *)y, num, 0.0));
         MLUBlockKernelLgamma<<<k_dim, k_type, queue>>>((float*)x, (float*)y, num);
     );
-  } else {
-    // half
+  } else { // d_type == MLUOP_DTYPE_HALF
     KERNEL_CHECK(
-        // MLUBlockKernel3StagePipelineLgammahalfFast<<<k_dim, k_type, queue>>>(
-        //     (void *)x, (void *)y, num, 0.0));
         MLUBlockKernelLgamma<<<k_dim, k_type, queue>>>((half*)x, (half*)y, num);
     );
   }

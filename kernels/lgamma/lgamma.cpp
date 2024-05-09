@@ -51,9 +51,9 @@ mluOpStatus_t MLUOP_WIN_API mluOpLgamma(mluOpHandle_t handle,
     return MLUOP_STATUS_ARCH_MISMATCH;
   }
 
-  VLOG(5) << "kernel Kernel3StagePipelineLgamma.";
+  VLOG(5) << "kernel KernelLgamma.";
   CHECK_RETURN("[mluOpLgamma] ",
-               Kernel3StagePipelineLgamma(k_dim, k_type, handle->queue,
+               KernelLgamma(k_dim, k_type, handle->queue,
                                        x_desc->dtype, x, y, element_num));
   // GEN_CASE_END();
 
