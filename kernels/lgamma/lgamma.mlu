@@ -15,13 +15,7 @@ const int inf_float_value = 0x7f800000;
 const int nan_float_mask = inf_float_value | 0x7fffff;
 const float log_e_2 = 0.69314718055994530941723212145818; // ln(x) = log(x) * log_e_2
 
-#define AUX_N 5
-#define buf0 aux_array[0]
-#define buf1 aux_array[1]
-#define buf2 aux_array[2]
-#define buf3 aux_array[3]
-#define buf4 aux_array[4]
-#define buf5 aux_array[5]
+#define AUX_N 7
 
 // macro for vector multiplexer 2 to 1, sel is 0/1 vector
 // dst = a*sel + !sel*b
@@ -43,44 +37,23 @@ const float log_e_2 = 0.69314718055994530941723212145818; // ln(x) = log(x) * lo
 #define __bang_loghp(dst, src, sz) __bang_log(dst, src, sz); \
                                    __bang_mul_scalar(dst, dst, log_e_2, sz);
 
-template <typename T>
-__mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
+template<typename T>
+__mlu_func__ void calc_lgamma(T *buf_in, float *buf0, float *buf2, float *buf3, float *buf4, int num_deal) {
   static const float log_pi = 1.144730;
   static const float log_sqrt_two_pi = 0.918939;
   static const float kLanczosGamma = 7; 
   static const float kBaseLanczosCoeff = 0.99999999999980993227684700473478;
   static const float log_lanczos_gamma_plus_one_half = 2.014903;
-
-  int core_n = total / taskDim;   // size of vector that each core computing 
-  int rem_n = total % taskDim;    
-  if (taskId <= rem_n) {
-    core_n += 1;
-    x += core_n*taskId;
-    y += core_n*taskId;
-  } else {
-    x += (core_n + 1) * rem_n + core_n * (taskId - rem_n);
-    y += (core_n + 1) * rem_n + core_n * (taskId - rem_n);
+  
+  float *buf1 = nullptr;
+  if (sizeof(float) == sizeof(T)) {
+    buf1 = (float *)buf_in;
+  } else if (sizeof(half) == sizeof(T)) {
+    buf1 = buf0;
+    __bang_half2float(buf1, (half *)buf_in, num_deal);
+    buf0 = (float *)buf_in;
   }
-
-  float* aux_array[AUX_N];
-  int arr_size = FLOOR_ALIGN(LGAMMA_NRAM_USED / sizeof(float) / AUX_N, UNARY_ALIGN_NUM);
-  int pos = 0;
-  for (size_t i = 0; i < AUX_N; i++) {
-    aux_array[i] = (float*)nram_buffer + pos;
-    pos += arr_size;
-  }
-
-  for (size_t i = 0; i < core_n; i += arr_size) {
-    int num_deal = i + arr_size > core_n ? core_n - i : arr_size;
-
-    // using buf1 -> input
-    if (sizeof(T) == sizeof(float)) {
-      __memcpy(buf1, x + i, num_deal*sizeof(float), GDRAM2NRAM);  
-    } else if (sizeof(T) == sizeof(half)) {  // half
-      __memcpy(buf0, x + i, num_deal*sizeof(half), GDRAM2NRAM);  
-      __bang_half2float(buf1, (half *)buf0, num_deal);
-    }
-
+    
     /**
      * bool need_to_reflect = (input < 0.5); 
      */
@@ -214,18 +187,146 @@ __mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) {
     /**
      * return isinf(input) ? INFINITY : result;
     */ 
-    __bang_isinf(buf4, buf2, num_deal);
+    __bang_isinf(buf0, buf1, num_deal);
     __bang_write_value(buf3, num_deal, (float)(inf_float_value));
-    __bang_mux2(buf1, buf3, buf2, buf4, num_deal);
-
-
-    if (sizeof(T) == sizeof(float)) {
-      __memcpy(y + i, buf1, num_deal*sizeof(float), NRAM2GDRAM);  
-    } else if (sizeof(T) == sizeof(half)) {  // half
-      __mluop_float2half((half *)buf1, buf1, num_deal);
-      __memcpy(y + i, buf1, num_deal*sizeof(half), NRAM2GDRAM);  
+    __bang_mux2(buf4, buf3, buf2, buf0, num_deal);
+    
+    if (sizeof(half) == sizeof(T)) {
+      __mluop_float2half((half *)buf4, buf4, num_deal);
     }
-  } 
+
+}
+
+// buffer <0 1 .. 5 6>
+/** when using pipelines, 
+ * buffer <0 1> is ping-pong buffer for load, 
+ * buffer <2 .. 4> for compute only, 
+ * buffer <5 6> is ping-pong buffer for store 
+ * for data load in circle C, it should load in buffer[(C % 2) ? 1 : 0],
+ * for data load in circle C, its result should store in  buffer[(C % 2) ? 6 : 5],
+ **/
+
+template <typename T>
+__mlu_global__ void MLUBlockKernelLgamma(T *x, T *y, int total) { // FIXME: now is 3 stage pipeline
+  int core_n = total / taskDim;   // size of vector that each core computing 
+  int rem_n = total % taskDim;    
+  if (taskId <= rem_n) {
+    core_n += 1;
+    x += core_n*taskId;
+    y += core_n*taskId;
+  } else {
+    x += (core_n + 1) * rem_n + core_n * (taskId - rem_n);
+    y += (core_n + 1) * rem_n + core_n * (taskId - rem_n);
+  }
+
+  float* aux_array[AUX_N];
+  int arr_size = FLOOR_ALIGN(LGAMMA_NRAM_USED / sizeof(float) / AUX_N, UNARY_ALIGN_NUM);
+  int pos = 0;
+  for (size_t i = 0; i < AUX_N; i++) {
+    aux_array[i] = (float*)nram_buffer + pos;
+    pos += arr_size;
+  }
+
+  int32_t repeat = core_n / arr_size;
+  int32_t rem = core_n % arr_size;
+
+  // CC 0
+  if (repeat > 0) {
+    // load
+    __memcpy_async(aux_array[0], x, arr_size*sizeof(T), GDRAM2NRAM);
+    __sync();
+  }
+
+  // CC 1
+  if (repeat > 1) {
+    // load
+    __memcpy_async(aux_array[1], x + arr_size, arr_size*sizeof(T),
+                   GDRAM2NRAM);
+
+    // compute
+    calc_lgamma((T*)aux_array[0],aux_array[2], aux_array[3], aux_array[4],
+                aux_array[5], arr_size);
+    __sync();
+  }
+
+  // CC 2 -> repeat-1
+  for (int i = 0; i < repeat - 2; i++) {
+    // store
+    __memcpy_async(y + i*arr_size, aux_array[(i % 2) ? 6 : 5],
+                   arr_size*sizeof(T), NRAM2GDRAM);
+
+    // load
+    __memcpy_async(aux_array[(i % 2) ? 1 : 0], x + (i+2)*arr_size,
+                   arr_size*sizeof(T), GDRAM2NRAM);
+    
+    // compute
+    calc_lgamma((T*)aux_array[(i % 2) ? 0 : 1],aux_array[2], aux_array[3],
+                aux_array[4], aux_array[(i % 2) ? 5 : 6], arr_size);
+
+    __sync();
+  }
+
+  // CC repeat
+  if (repeat > 1) {
+    __memcpy_async(y + (repeat - 2)*arr_size,
+                   aux_array[((repeat - 2) % 2) ? 6 : 5],
+                   arr_size*sizeof(T), NRAM2GDRAM);
+  }
+
+  // if rem > 0, lead last (core_n % arr_size) element
+  if (rem > 0) {
+    __memcpy_async(aux_array[(repeat % 2) ? 1 : 0],
+                   x + repeat*arr_size, rem*sizeof(T), GDRAM2NRAM);
+  }
+
+  if (repeat > 0) {
+    calc_lgamma((T*)aux_array[((repeat-1) % 2) ? 1 : 0],aux_array[2], 
+                aux_array[3],aux_array[4], 
+                aux_array[((repeat-1) % 2) ? 6 : 5], arr_size);
+  }
+  __sync();
+
+  // CC repeat+1
+  if (repeat > 0) {
+    __memcpy_async(y + (repeat - 1)*arr_size,
+                   aux_array[((repeat - 1) % 2) ? 6 : 5],
+                   arr_size*sizeof(T), NRAM2GDRAM);
+  }
+
+  // if rem > 0, compute & store last (core_n % arr_size) element
+  if (rem > 0) {
+    calc_lgamma((T*)aux_array[(repeat % 2) ? 1 : 0],aux_array[2], 
+                aux_array[3],aux_array[4], 
+                aux_array[(repeat % 2) ? 6 : 5], rem);
+
+    __sync();
+
+    // CC repeat+2
+    __memcpy_async(y + repeat*arr_size,
+                   aux_array[(repeat % 2) ? 6 : 5],
+                   rem*sizeof(T), NRAM2GDRAM);
+  }
+
+  // for (size_t i = 0; i < core_n; i += arr_size) {
+  //   int num_deal = i + arr_size > core_n ? core_n - i : arr_size;
+
+
+
+  //   // using buf1 -> input
+  //   if (sizeof(T) == sizeof(float)) {
+  //     __memcpy(buf1, x + i, num_deal*sizeof(float), GDRAM2NRAM);  
+  //   } else if (sizeof(T) == sizeof(half)) {  // half
+  //     __memcpy(buf0, x + i, num_deal*sizeof(half), GDRAM2NRAM);  
+  //     __bang_half2float(buf1, (half *)buf0, num_deal);
+  //   }
+
+  //   if (sizeof(T) == sizeof(float)) {
+  //     __memcpy(y + i, buf1, num_deal*sizeof(float), NRAM2GDRAM);  
+  //   } else if (sizeof(T) == sizeof(half)) {  // half
+  //     __mluop_float2half((half *)buf1, buf1, num_deal);
+  //     __memcpy(y + i, buf1, num_deal*sizeof(half), NRAM2GDRAM);  
+  //   }
+  // } 
 }
 
 
