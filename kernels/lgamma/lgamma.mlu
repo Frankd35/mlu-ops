@@ -69,16 +69,9 @@ __mlu_func__ void __bang_loghp(float *dst, float *src, uint32_t sz) {
 
 // template<typename T>
 __mlu_func__ void calc_lgamma(float *buf1, float *buf0, float *buf2, float *buf3, float *buf4, float *nram_addition, int num_deal) {
+  static const int numCoeff = 4;
   static const float log_pi = 1.144730;
-  static const float log_sqrt_two_pi = 0.918939;
-  static const float kLanczosGamma = 7; 
-  static const float kBaseLanczosCoeff = 0.99999999999980993227684700473478;
-  static const float log_lanczos_gamma_plus_one_half = 2.014903;
-  static float kLanczosCoefficients[8] = {
-    676.520368121885098567009190444019, -1259.13921672240287047156078755283,
-    771.3234287776530788486528258894,   -176.61502916214059906584551354,
-    12.507343278686904814458936853,     -0.13857109526572011689554707,
-    9.984369578019570859563e-6,         1.50563273514931155834e-7};
+  static const float coeff4[numCoeff] = {2.50663, 34.7892, -20.8994, 1.35914, };
 
     /**
      * bool need_to_reflect = (input < 0.5); 
@@ -86,80 +79,43 @@ __mlu_func__ void calc_lgamma(float *buf1, float *buf0, float *buf2, float *buf3
     __bang_lt_scalar(buf4, buf1, 0.5, num_deal);
 
     /**
-     * float input_after_reflect = need_to_reflect ? -input : input - 1;  // aka z
+     * float reflect_x = need_reflect ? -x : x - 1;
      */
-    // using buf0 -> input_after_reflect
+    // using buf0 -> reflect_x
     __bang_mul_scalar(buf0, buf1, -1, num_deal);
     __bang_add_scalar(buf2, buf1, -1, num_deal);
     __bang_mux2(buf0, buf0, buf2, buf4, num_deal);
 
     /**
-     * float sum = kBaseLanczosCoeff;  // aka x
-     * for (int i = 0, end = 8; i < end; ++i) {
-     *   float lanczos_coefficient = kLanczosCoefficients[i];
-     *   sum += lanczos_coefficient / (input_after_reflect + i + 1);
-     * }
+      float accm = coeffs[0];
+      int numCoeff = coeffs.size();   // aka a
+      for (size_t k = 1; k < numCoeff; k++) {
+        accm += coeffs[k] / (reflect_x + k);
+      }
      */
     // do loop flatten, using buf2 -> sum
     __bang_add_scalar(buf3, buf0, 1, num_deal);
     __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, kLanczosCoefficients[0], kBaseLanczosCoeff, num_deal);
+    __bang_fusion(FUSION_FMA, buf2, buf3, coeff4[1], coeff4[0], num_deal);
 
     __bang_add_scalar(buf3, buf0, 2, num_deal);
     __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, kLanczosCoefficients[1], buf2, num_deal, num_deal);
+    __bang_fusion(FUSION_FMA, buf2, buf3, coeff4[2], buf2, num_deal, num_deal);
 
     __bang_add_scalar(buf3, buf0, 3, num_deal);
     __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, kLanczosCoefficients[2], buf2, num_deal, num_deal);
-
-    __bang_add_scalar(buf3, buf0, 4, num_deal);
-    __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, kLanczosCoefficients[3], buf2, num_deal, num_deal);
-
-    __bang_add_scalar(buf3, buf0, 5, num_deal);
-    __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, kLanczosCoefficients[4], buf2, num_deal, num_deal);
-
-    __bang_add_scalar(buf3, buf0, 6, num_deal);
-    __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, kLanczosCoefficients[5], buf2, num_deal, num_deal);
-
-    __bang_add_scalar(buf3, buf0, 7, num_deal);
-    __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, kLanczosCoefficients[6], buf2, num_deal, num_deal);
-  
-    __bang_add_scalar(buf3, buf0, 8, num_deal);
-    __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, kLanczosCoefficients[7], buf2, num_deal, num_deal);
+    __bang_fusion(FUSION_FMA, buf2, buf3, coeff4[3], buf2, num_deal, num_deal);
 
     /**
-     * float gamma_plus_onehalf_plus_z = kLanczosGamma + 0.5 + input_after_reflect;  // aka t
+     * float lgamma_x = (reflect_x+0.5)*log(reflect_x+numCoeff) - (reflect_x+numCoeff) + log(accm);
      */
-    // using buf3 -> gamma_plus_onehalf_plus_z
-    __bang_add_scalar(buf3, buf0, kLanczosGamma+0.5, num_deal);
-
-    /** 
-     * float log_t = log_lanczos_gamma_plus_one_half + log1pf(input_after_reflect / (kLanczosGamma + 0.5));
-     */
-    // using buf4 -> log_t
-    __bang_write_value(buf4, num_deal, (float)(kLanczosGamma+0.5));
-    __bang_recip(buf4, buf4, num_deal);
-    __bang_fusion(FUSION_FMA, buf4, buf4, buf0, 1, num_deal, num_deal);
-    __bang_loghp(buf4, buf4, num_deal);
-    __bang_add_scalar(buf4, buf4, log_lanczos_gamma_plus_one_half, num_deal);
-
-    /**
-     * float log_y = log_sqrt_two_pi + (input_after_reflect + 0.5 - gamma_plus_onehalf_plus_z / log_t) * log_t + log(sum);
-     *  ---->
-     *        log_y = log_sqrt_two_pi + (input_after_reflect + 0.5) * log_t - gamma_plus_onehalf_plus_z + log(sum)
-    */
-    // using buf0 -> log_y
-    __bang_loghp(buf2, buf2, num_deal);
+    // using buf4 -> lgamma_x
+    __bang_add_scalar(buf3, buf0, numCoeff, num_deal);
     __bang_add_scalar(buf0, buf0, 0.5, num_deal);
-    __bang_fusion(FUSION_FMA, buf0, buf0, buf4, log_sqrt_two_pi, num_deal, num_deal);
-    __bang_sub(buf0, buf0, buf3, num_deal);
-    __bang_add(buf0, buf0, buf2, num_deal);
+    __bang_loghp(buf3, buf3, num_deal);
+    __bang_loghp(buf2, buf2, num_deal);
+    __bang_fusion(FUSION_FMA, buf4, buf3, buf0, buf2, num_deal, num_deal);
+    __bang_sub(buf0, buf4, buf2, num_deal);
 
     /**
      * float abs_input = fabs(input);
