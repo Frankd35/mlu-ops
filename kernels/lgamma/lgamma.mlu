@@ -79,7 +79,7 @@ __mlu_func__ void calc_lgamma(float *buf1, float *buf0, float *buf2, float *buf3
     __bang_lt_scalar(buf4, buf1, 0.5, num_deal);
 
     /**
-     * float reflect_x = need_reflect ? -x : x - 1;
+     * float reflect_x = need_reflect ? -input : input - 1;
      */
     // using buf0 -> reflect_x
     __bang_mul_scalar(buf0, buf1, -1, num_deal);
@@ -109,13 +109,13 @@ __mlu_func__ void calc_lgamma(float *buf1, float *buf0, float *buf2, float *buf3
     /**
      * float lgamma_x = (reflect_x+0.5)*log(reflect_x+numCoeff) - (reflect_x+numCoeff) + log(accm);
      */
-    // using buf4 -> lgamma_x
+    // using buf0 -> lgamma_x
     __bang_add_scalar(buf3, buf0, numCoeff, num_deal);
     __bang_add_scalar(buf0, buf0, 0.5, num_deal);
     __bang_loghp(buf3, buf3, num_deal);
     __bang_loghp(buf2, buf2, num_deal);
     __bang_fusion(FUSION_FMA, buf4, buf3, buf0, buf2, num_deal, num_deal);
-    __bang_sub(buf0, buf4, buf2, num_deal);
+    __bang_sub(buf0, buf4, buf3, num_deal);
 
     /**
      * float abs_input = fabs(input);
@@ -139,11 +139,11 @@ __mlu_func__ void calc_lgamma(float *buf1, float *buf0, float *buf2, float *buf3
     */
     // using buf2 -> reflection_denom
     __bang_mul_scalar(buf2, buf3, M_PI, num_deal);
-    __bang_sin(buf2, buf2, num_deal);               // active sin ?
-    __bang_loghp(buf2, buf2, num_deal);               // active log ?
+    __bang_sin(buf2, buf2, num_deal);
+    __bang_loghp(buf2, buf2, num_deal);
     
     /**
-     * float reflection = std::isfinite(reflection_denom) ? log_pi - reflection_denom - log_y : -reflection_denom;
+     * float reflection = std::isfinite(reflection_denom) ? log_pi - reflection_denom - lgamma_x : -reflection_denom;
     */
     // using buf3 -> reflection
     __bang_write_zero(buf4, num_deal);
@@ -155,7 +155,7 @@ __mlu_func__ void calc_lgamma(float *buf1, float *buf0, float *buf2, float *buf3
 
 
     /**
-     * float result = need_to_reflect ? reflection : log_y;
+     * float result = need_to_reflect ? reflection : lgamma_x;
     */
     // using buf2 -> result
     __bang_lt_scalar(buf4, buf1, 0.5, num_deal);
