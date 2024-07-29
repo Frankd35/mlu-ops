@@ -69,9 +69,10 @@ __mlu_func__ void __bang_loghp(float *dst, float *src, uint32_t sz) {
 
 template<typename T>
 __mlu_func__ void calc_lgamma(T *buf_in, float *buf0, float *buf2, float *buf3, float *buf4, int num_deal) {
-  static const int numCoeff = 4;
+  static const int numCoeff = 8;
   static const float log_pi = 1.144730;
-  static const float coeff4[numCoeff] = {2.50663, 34.7892, -20.8994, 1.35914, };
+  // static const float coeff[numCoeff] = {2.50663, 34.7892, -20.8994, 1.35914, };
+  static const float coeff[numCoeff] = {2.50663, 2901.42, -5929.17, 4148.27, -1164.76, 117.413, -2.78659, 0.00377539, };
 
   float *buf1 = nullptr;
   if (sizeof(float) == sizeof(T)) {
@@ -105,15 +106,31 @@ __mlu_func__ void calc_lgamma(T *buf_in, float *buf0, float *buf2, float *buf3, 
     // do loop flatten, using buf2 -> sum
     __bang_add_scalar(buf3, buf0, 1, num_deal);
     __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, coeff4[1], coeff4[0], num_deal);
+    __bang_fusion(FUSION_FMA, buf2, buf3, coeff[1], coeff[0], num_deal);
 
     __bang_add_scalar(buf3, buf0, 2, num_deal);
     __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, coeff4[2], buf2, num_deal, num_deal);
+    __bang_fusion(FUSION_FMA, buf2, buf3, coeff[2], buf2, num_deal, num_deal);
 
     __bang_add_scalar(buf3, buf0, 3, num_deal);
     __bang_recip(buf3, buf3, num_deal);
-    __bang_fusion(FUSION_FMA, buf2, buf3, coeff4[3], buf2, num_deal, num_deal);
+    __bang_fusion(FUSION_FMA, buf2, buf3, coeff[3], buf2, num_deal, num_deal);
+
+    __bang_add_scalar(buf3, buf0, 4, num_deal);
+    __bang_recip(buf3, buf3, num_deal);
+    __bang_fusion(FUSION_FMA, buf2, buf3, coeff[4], buf2, num_deal, num_deal);
+
+    __bang_add_scalar(buf3, buf0, 5, num_deal);
+    __bang_recip(buf3, buf3, num_deal);
+    __bang_fusion(FUSION_FMA, buf2, buf3, coeff[5], buf2, num_deal, num_deal);
+
+    __bang_add_scalar(buf3, buf0, 6, num_deal);
+    __bang_recip(buf3, buf3, num_deal);
+    __bang_fusion(FUSION_FMA, buf2, buf3, coeff[6], buf2, num_deal, num_deal);
+
+    __bang_add_scalar(buf3, buf0, 7, num_deal);
+    __bang_recip(buf3, buf3, num_deal);
+    __bang_fusion(FUSION_FMA, buf2, buf3, coeff[7], buf2, num_deal, num_deal);
 
     /**
      * float lgamma_x = (reflect_x+0.5)*log(reflect_x+numCoeff) - (reflect_x+numCoeff) + log(accm);
